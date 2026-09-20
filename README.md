@@ -220,4 +220,4 @@ the simulator and what has not.
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
