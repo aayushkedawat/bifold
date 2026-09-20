@@ -72,6 +72,8 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
       result(foldReader.read(from: view, version: payloadVersion))
     case "isSupported":
       result(FoldReader.isSupported)
+    case "debugDescribeNativeApi":
+      result(NativeApiProbe.describe())
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -80,11 +82,23 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   /// The `UIView` backing the Flutter view controller.
   ///
   /// Reserved regions are a property of a specific view, so every reading is
-  /// taken from this one. Returns nil before the view controller is attached.
+  /// taken from this one. Returns nil before the view controller is attached,
+  /// which is the normal state at registration time.
+  ///
+  /// VERIFIED: `FlutterPluginRegistrar.viewController` is declared in
+  /// `Flutter.framework/Headers/FlutterPlugin.h` as
+  /// `@property(nullable, readonly) UIViewController* viewController;`,
+  /// documented there as "the `UIViewController` whose view is displaying
+  /// Flutter content". Its `view` is therefore the view reserved regions
+  /// should be read from.
   private func flutterView() -> UIView? {
-    // `view` on the registrar's view controller is the documented access path
-    // to the Flutter view from a plugin.
-    return registrar?.view()
+    // `isViewLoaded` avoids forcing the view to load early, which would
+    // trigger a layout pass before UIKit is ready to report regions.
+    guard let controller = registrar?.viewController, controller.isViewLoaded
+    else {
+      return nil
+    }
+    return controller.view
   }
 }
 

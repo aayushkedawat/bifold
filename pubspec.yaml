@@ -1,7 +1,7 @@
 name: bifold
-description: "A new Flutter plugin project."
-version: 0.0.1
-homepage:
+description: "Fold awareness for the foldable iPhone: reserved regions, device pose, inner and outer display, with a debug overlay and test fakes."
+version: 0.1.0-dev.1
+homepage: https://github.com/aayushkedawat/bifold
 
 environment:
   sdk: ^3.12.2

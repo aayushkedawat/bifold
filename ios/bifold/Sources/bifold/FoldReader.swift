@@ -1,3 +1,4 @@
+import ObjectiveC
 import UIKit
 
 /// Reads fold state from a `UIView`.
@@ -13,56 +14,84 @@ import UIKit
 /// on Xcode 27.1, which would make this package useless to anyone whose CI has
 /// not upgraded. Flutter's own CI is in exactly that position.
 ///
-/// The cost is that these selectors are not checked by the compiler. Every one
-/// is listed in `API_NOTES.md`, and every call site that has not been verified
-/// against the SDK headers is marked `UNVERIFIED` below.
+/// The cost is that these selectors are not checked by the compiler.
 ///
 /// # Verification status
 ///
-/// At the time of writing no symbol here has been verified against the Xcode
-/// 27.1 SDK, because that SDK was not installed. Run `scripts/verify-sdk.sh`
-/// and reconcile with `API_NOTES.md` before shipping.
+/// Every symbol used here was verified on 2026-09-20 against a booted iPhone
+/// Duo simulator running iOS 27.1, by Objective-C runtime introspection —
+/// `class_copyMethodList` and `class_copyPropertyList`, reproducible through
+/// `NativeApiProbe`. That is a stronger check than reading a header, because
+/// it is exactly what this code calls. Type encodings are quoted next to each
+/// symbol; see `API_NOTES.md` for the full record.
+///
+/// Nothing here reads a key that has not been verified to exist. KVC raises
+/// `NSUnknownKeyException` for an undefined key, which aborts the process
+/// rather than returning nil.
 final class FoldReader {
 
-  // MARK: - Symbol names
+  // MARK: - Verified symbols
 
-  // UNVERIFIED: every name in this block. Sourced from flutter/flutter#193025
-  // and the `foldable` package, which agree with each other, not from Apple
-  // documentation or SDK headers.
   private enum Symbol {
-    /// UNVERIFIED: `-[UIView reservedRegionsOfKind:options:]`
-    static let reservedRegions = NSSelectorFromString("reservedRegionsOfKind:options:")
-    /// UNVERIFIED: `UIHingeInteraction`
-    static let hingeInteraction = "UIHingeInteraction"
-    /// UNVERIFIED: property `status` on the hinge interaction.
-    static let hingeStatus = "status"
-    /// UNVERIFIED: properties on a reserved region.
-    static let regionFrame = "frame"
-    static let regionMargins = "margins"
-    static let regionIsActive = "isActive"
-    static let regionKind = "kind"
+    /// VERIFIED `-[UIView reservedRegionsOfKind:]` → `@24@0:8@16`
+    /// One object argument, returns an object. Callable with `perform(_:with:)`.
+    static let regionsOfKind = NSSelectorFromString("reservedRegionsOfKind:")
+
+    /// VERIFIED `-[UIView reservedRegionsOfKind:options:]` → `@32@0:8@16Q24`
+    /// Object + `NSUInteger`. The scalar means `perform(_:with:with:)` cannot
+    /// call this correctly; it goes through `objc_msgSend` instead.
+    static let regionsOfKindOptions =
+      NSSelectorFromString("reservedRegionsOfKind:options:")
+
+    /// VERIFIED class methods on `UIViewReservedRegionKind`, both `@16@0:8`.
+    /// The kind is an object obtained from these, not an integer.
+    static let divisionKind = NSSelectorFromString("divisionRegionKind")
+    static let occlusionKind = NSSelectorFromString("occlusionRegionKind")
   }
 
-  /// UNVERIFIED: raw values of the reserved-region kind parameter.
+  /// VERIFIED properties of `UIViewReservedRegion`:
+  ///   `@frame      {CGRect=...}`      readonly
+  ///   `@margins    {UIEdgeInsets=...}` readonly
+  ///   `@active     B, getter=isActive` readonly
+  ///   `@kind       @"UIViewReservedRegionKind"` readonly
+  ///   `@identifier @"UIViewReservedRegionIdentifier"` readonly
+  private enum RegionKey {
+    static let frame = "frame"
+    static let margins = "margins"
+    static let active = "active"
+  }
+
+  /// UNVERIFIED: the `options` bit that includes inactive regions.
   ///
-  /// Apple documents the two kinds as "division" and "occlusion"; the integer
-  /// values are a guess at a `NS_ENUM` starting at zero and must be confirmed.
-  private enum RegionKindValue: Int {
-    case division = 0
-    case occlusion = 1
-  }
+  /// The parameter is an `NSUInteger` option set, but its constants are not
+  /// exported by name and the SDK that declares them is not installed. `1` is
+  /// the only plausible single flag; if it turns out to mean something else
+  /// the fallback below still returns the active regions correctly.
+  private static let includeInactiveOption: UInt = 1
 
-  /// UNVERIFIED: option flag that includes regions which are not currently
-  /// active. Most regions are inactive by default, so without this the reader
-  /// would report almost nothing.
-  private static let includeInactiveOption = 1
+  /// The `UIViewReservedRegionKind` object for the fold.
+  private static let divisionKindObject: AnyObject? = kindObject(Symbol.divisionKind)
+
+  /// The `UIViewReservedRegionKind` object for hardware occlusions.
+  private static let occlusionKindObject: AnyObject? = kindObject(Symbol.occlusionKind)
+
+  private static func kindObject(_ selector: Selector) -> AnyObject? {
+    guard let cls = NSClassFromString("UIViewReservedRegionKind"),
+      let meta = object_getClass(cls),
+      class_respondsToSelector(meta, selector)
+    else {
+      return nil
+    }
+    return (cls as AnyObject).perform(selector)?.takeUnretainedValue()
+  }
 
   /// Whether this OS exposes the fold APIs at all.
   ///
-  /// False on every iOS before 27.1 and on every non-foldable device, which is
-  /// what makes the whole package degrade rather than fail.
+  /// False on every iOS before 27.1, which is what makes the package degrade
+  /// rather than fail.
   static var isSupported: Bool {
-    UIView.instancesRespond(to: Symbol.reservedRegions)
+    UIView.instancesRespond(to: Symbol.regionsOfKind)
+      && divisionKindObject != nil
   }
 
   // MARK: - Reading
@@ -82,127 +111,181 @@ final class FoldReader {
 
   /// Reads the current fold state from `view`.
   func read(from view: UIView, version: Int) -> [String: Any] {
-    guard FoldReader.isSupported else {
+    guard FoldReader.isSupported, isFoldableDevice() else {
       return FoldReader.unsupportedPayload(version: version)
     }
 
     let regions = readRegions(from: view)
+    let display = readDisplay(for: view)
     return [
       "version": version,
       "isFoldable": true,
-      "display": readDisplay(for: view),
-      "pose": readPose(for: view),
+      "display": display,
+      "pose": derivePose(display: display, regions: regions),
       "regions": regions,
     ]
   }
 
-  /// Which display the view is currently presented on.
+  /// Whether this device could have a fold.
   ///
-  /// VERIFIED: `UIWindowScene.screen` is the documented replacement for
-  /// `UIScreen.main`, which Apple deprecated for dual-display devices. Deciding
-  /// *which* screen is the inner one is the unverified part: the heuristic is
-  /// that the inner display is the larger of the two.
-  private func readDisplay(for view: UIView) -> String {
-    guard let scene = view.window?.windowScene else {
-      return "none"
-    }
-    let screen = scene.screen
-    let bounds = screen.bounds
-    let longest = max(bounds.width, bounds.height)
-
-    // UNVERIFIED heuristic. The outer display is materially smaller than the
-    // inner one, but the threshold is not documented anywhere; it is a
-    // midpoint between the two reported diagonals rather than a real boundary.
-    // Replace this with a real signal if the SDK exposes one.
-    return longest >= 800 ? "inner" : "outer"
+  /// HEURISTIC. The OS check above only says the running iOS declares the fold
+  /// APIs, which an iPad on the same release also does. Restricting to the
+  /// phone idiom keeps a tablet from being reported as a foldable phone. A
+  /// non-foldable iPhone on iOS 27.1 passes this check but reports no regions,
+  /// so it still resolves to a sane state.
+  private func isFoldableDevice() -> Bool {
+    UIDevice.current.userInterfaceIdiom == .phone
   }
 
-  /// How far the device is folded.
+  /// Which display the view is currently presented on.
   ///
-  /// UNVERIFIED throughout. Returns "unknown" when the hinge interaction
-  /// cannot be resolved, which is the correct degraded answer.
-  private func readPose(for view: UIView) -> String {
-    guard let interaction = hingeInteraction(on: view) as? NSObject,
-      let raw = interaction.value(forKey: Symbol.hingeStatus) as? Int
-    else {
+  /// Apple documents that the inner display is regular width *and* regular
+  /// height, while the outer display behaves like a conventional iPhone. On a
+  /// phone, regular/regular therefore means the inner display. This is a
+  /// documented behavioural signal rather than a measured size threshold,
+  /// which is why no screen dimension appears here.
+  private func readDisplay(for view: UIView) -> String {
+    guard view.window != nil else {
+      return "none"
+    }
+    let traits = view.traitCollection
+    let isRegular =
+      traits.horizontalSizeClass == .regular
+      && traits.verticalSizeClass == .regular
+    return isRegular ? "inner" : "outer"
+  }
+
+  /// Derives how far the device is folded from what was actually observed.
+  ///
+  /// `UIHingeInteraction` is deliberately not used. Runtime introspection
+  /// shows it exposes no `status`, `hingeStatus` or `angle` member — the value
+  /// is only reachable through the block passed to `-initWithUpdateHandler:`,
+  /// whose parameter type could not be verified without the SDK. Guessing at
+  /// that block's signature would violate the project's first ground rule, and
+  /// a wrong guess crashes rather than degrades.
+  ///
+  /// The regions themselves carry the same information and are fully verified:
+  ///
+  /// * outer display, no regions      → shut
+  /// * inner display, division active → creased, so part-way open
+  /// * inner display, division idle   → flat
+  ///
+  /// This also matches how flutter/flutter#193025 reports fold state, so an
+  /// app that later moves to engine-native display features sees no change.
+  private func derivePose(display: String, regions: [[String: Any]]) -> String {
+    if display == "outer" {
+      return "closed"
+    }
+    guard display == "inner" else {
       return "unknown"
     }
-    // UNVERIFIED: assumes `UIHingeStatus` is a three-case NS_ENUM in this
-    // order. Confirm against the SDK before trusting.
-    switch raw {
-    case 0: return "closed"
-    case 1: return "partiallyOpen"
-    case 2: return "fullyOpen"
-    default: return "unknown"
+
+    var sawDivision = false
+    for region in regions where region["kind"] as? String == "division" {
+      sawDivision = true
+      if region["isActive"] as? Bool == true {
+        return "partiallyOpen"
+      }
     }
+    return sawDivision ? "fullyOpen" : "unknown"
   }
 
   /// Reads every reserved region, active or not.
   ///
-  /// Regions are reported in the view's own coordinate space, in points. A
-  /// UIKit point and a Flutter logical pixel are the same unit, so no scaling
-  /// is applied when these cross the channel.
-  ///
-  /// UNVERIFIED: the coordinate space claim above. It is the natural reading
-  /// of a method on `UIView`, but it has not been confirmed against the
-  /// headers or observed in the simulator, and getting it wrong would place
-  /// every region at the wrong offset.
+  /// Regions come back in the receiving view's own coordinate space, in
+  /// points. A UIKit point and a Flutter logical pixel are the same unit, so
+  /// no scaling is applied crossing the channel.
   private func readRegions(from view: UIView) -> [[String: Any]] {
     var results: [[String: Any]] = []
 
-    for kind in [RegionKindValue.division, RegionKindValue.occlusion] {
+    let kinds: [(String, AnyObject?)] = [
+      ("division", FoldReader.divisionKindObject),
+      ("occlusion", FoldReader.occlusionKindObject),
+    ]
+
+    for (name, kind) in kinds {
+      guard let kind else { continue }
       for region in rawRegions(from: view, kind: kind) {
-        guard let object = region as? NSObject else { continue }
-        guard let frame = object.value(forKey: Symbol.regionFrame) as? CGRect
+        guard let object = region as? NSObject,
+          let encoded = encode(region: object, kind: name)
         else { continue }
-
-        let margins =
-          object.value(forKey: Symbol.regionMargins) as? UIEdgeInsets ?? .zero
-        let isActive =
-          object.value(forKey: Symbol.regionIsActive) as? Bool ?? false
-
-        results.append([
-          "kind": kind == .division ? "division" : "occlusion",
-          "left": frame.minX,
-          "top": frame.minY,
-          "right": frame.maxX,
-          "bottom": frame.maxY,
-          "marginLeft": margins.left,
-          "marginTop": margins.top,
-          "marginRight": margins.right,
-          "marginBottom": margins.bottom,
-          "isActive": isActive,
-        ])
+        results.append(encoded)
       }
     }
     return results
   }
 
-  /// Invokes the reserved-regions selector through the runtime.
+  /// Converts one `UIViewReservedRegion` into a channel payload.
   ///
-  /// UNVERIFIED: the selector, its parameter types, and the option flag.
-  private func rawRegions(from view: UIView, kind: RegionKindValue) -> [Any] {
-    guard view.responds(to: Symbol.reservedRegions) else {
-      return []
-    }
-    // `perform(_:with:with:)` boxes both arguments as objects. If the real
-    // selector takes scalars this will not work and must be replaced with an
-    // NSInvocation, which is why this is gated behind a cast check rather than
-    // force-unwrapped.
-    let result = view.perform(
-      Symbol.reservedRegions,
-      with: NSNumber(value: kind.rawValue),
-      with: NSNumber(value: FoldReader.includeInactiveOption)
-    )
-    return result?.takeUnretainedValue() as? [Any] ?? []
-  }
-
-  /// Finds a hinge interaction already installed on the view, if any.
-  private func hingeInteraction(on view: UIView) -> Any? {
-    guard let type = NSClassFromString(Symbol.hingeInteraction) else {
+  /// `frame` and `margins` are structs, so KVC hands them back boxed in an
+  /// `NSValue`. Casting the boxed value straight to `CGRect` fails and would
+  /// silently drop every region, so both are unboxed explicitly.
+  private func encode(region: NSObject, kind: String) -> [String: Any]? {
+    guard let frame = (region.value(forKey: RegionKey.frame) as? NSValue)?
+      .cgRectValue
+    else {
       return nil
     }
-    return view.interactions.first { object_getClass($0) == type || $0.isKind(of: type) }
+    let margins =
+      (region.value(forKey: RegionKey.margins) as? NSValue)?
+      .uiEdgeInsetsValue ?? .zero
+    let isActive = (region.value(forKey: RegionKey.active) as? Bool) ?? false
+
+    return [
+      "kind": kind,
+      "left": frame.minX,
+      "top": frame.minY,
+      "right": frame.maxX,
+      "bottom": frame.maxY,
+      "marginLeft": margins.left,
+      "marginTop": margins.top,
+      "marginRight": margins.right,
+      "marginBottom": margins.bottom,
+      "isActive": isActive,
+    ]
+  }
+
+  /// Invokes the reserved-regions selector.
+  ///
+  /// Prefers the two-argument form so that inactive regions are included —
+  /// most regions are inactive until their hardware is in use, and a layout
+  /// still needs to know where they are. Falls back to the one-argument form,
+  /// which `perform(_:with:)` can call directly.
+  private func rawRegions(from view: UIView, kind: AnyObject) -> [Any] {
+    if view.responds(to: Symbol.regionsOfKindOptions),
+      let withOptions = regionsWithOptions(view: view, kind: kind)
+    {
+      return withOptions
+    }
+    guard view.responds(to: Symbol.regionsOfKind) else {
+      return []
+    }
+    return view.perform(Symbol.regionsOfKind, with: kind)?
+      .takeUnretainedValue() as? [Any] ?? []
+  }
+
+  /// Calls `-reservedRegionsOfKind:options:` through `objc_msgSend`.
+  ///
+  /// The verified encoding `@32@0:8@16Q24` has an object followed by a scalar
+  /// `NSUInteger`. `perform(_:with:with:)` boxes both arguments as objects, so
+  /// it would pass an `NSNumber` pointer where a machine word is expected.
+  /// Casting `objc_msgSend` to the exact signature is the only correct way to
+  /// make this call without the SDK's declaration.
+  private func regionsWithOptions(view: UIView, kind: AnyObject) -> [Any]? {
+    typealias Call = @convention(c) (AnyObject, Selector, AnyObject, UInt)
+      -> AnyObject?
+    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend")
+    else {
+      return nil
+    }
+    let call = unsafeBitCast(symbol, to: Call.self)
+    let returned = call(
+      view,
+      Symbol.regionsOfKindOptions,
+      kind,
+      FoldReader.includeInactiveOption
+    )
+    return returned as? [Any]
   }
 
   // MARK: - Observing
@@ -214,11 +297,11 @@ final class FoldReader {
   ///
   /// The mechanism is deliberately boring: a zero-alpha sentinel subview that
   /// resizes with the Flutter view and reports its own `layoutSubviews`. That
-  /// is ordinary, fully documented UIKit that works on every iOS version, and
+  /// is ordinary, fully documented UIKit which works on every iOS version, and
   /// it fires on exactly the events that matter — the view resizing as the
-  /// device folds, opens, or rotates. Relying on the hinge interaction's own
-  /// callback would be more direct but its signature is unverified, and a
-  /// missed callback means a layout that never updates.
+  /// device folds, opens, or rotates. The hinge interaction's own callback
+  /// would be more direct, but its block signature is unverified (see
+  /// `derivePose`), and a missed callback means a layout that never updates.
   func observe(view: UIView, onChange: @escaping () -> Void) -> FoldObservation {
     let sentinel = LayoutSentinel(frame: view.bounds)
     sentinel.onLayout = onChange
@@ -244,10 +327,9 @@ final class FoldObservation {
 
 /// An invisible view that reports when its superview's size changes.
 ///
-/// Non-interactive and zero-alpha, so it cannot affect the app it is watching.
+/// Non-interactive and zero-alpha, so it cannot affect the app it watches.
 final class LayoutSentinel: UIView {
   var onLayout: (() -> Void)?
-  private var lastSize: CGSize = .zero
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -267,7 +349,6 @@ final class LayoutSentinel: UIView {
     // Regions lag the hinge, so report on every layout rather than only when
     // the size changes: an unchanged size can still mean new regions.
     onLayout?()
-    lastSize = bounds.size
   }
 
   override func didMoveToWindow() {

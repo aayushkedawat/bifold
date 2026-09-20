@@ -1,58 +1,222 @@
-import 'package:flutter/material.dart';
-import 'dart:async';
-
-import 'package:flutter/services.dart';
 import 'package:bifold/bifold.dart';
+import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const MyApp());
+  // One scope at the root. Everything below it can read fold state.
+  runApp(const BifoldScope(child: ExampleApp()));
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+class ExampleApp extends StatefulWidget {
+  const ExampleApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<ExampleApp> createState() => _ExampleAppState();
 }
 
-class _MyAppState extends State<MyApp> {
-  String _platformVersion = 'Unknown';
-  final _bifoldPlugin = Bifold();
-
-  @override
-  void initState() {
-    super.initState();
-    initPlatformState();
-  }
-
-  // Platform messages are asynchronous, so we initialize in an async method.
-  Future<void> initPlatformState() async {
-    String platformVersion;
-    // Platform messages may fail, so we use a try/catch PlatformException.
-    // We also handle the message potentially returning null.
-    try {
-      platformVersion =
-          await _bifoldPlugin.getPlatformVersion() ?? 'Unknown platform version';
-    } on PlatformException {
-      platformVersion = 'Failed to get platform version.';
-    }
-
-    // If the widget was removed from the tree while the asynchronous platform
-    // message was in flight, we want to discard the reply rather than calling
-    // setState to update our non-existent appearance.
-    if (!mounted) return;
-
-    setState(() {
-      _platformVersion = platformVersion;
-    });
-  }
+class _ExampleAppState extends State<ExampleApp> {
+  bool _overlayEnabled = true;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Plugin example app')),
-        body: Center(child: Text('Running on: $_platformVersion\n')),
+      title: 'bifold example',
+      theme: ThemeData(
+        colorSchemeSeed: const Color(0xFF3D5AFE),
+        brightness: Brightness.dark,
+      ),
+      // The overlay wraps the whole app so it draws over the Scaffold too,
+      // including the area behind the app bar where the camera cutout sits.
+      builder: (context, child) => BifoldDebugOverlay(
+        enabled: _overlayEnabled,
+        child: child!,
+      ),
+      home: ReaderPage(
+        overlayEnabled: _overlayEnabled,
+        onToggleOverlay: () =>
+            setState(() => _overlayEnabled = !_overlayEnabled),
+      ),
+    );
+  }
+}
+
+/// A two-page reader that splits across the fold.
+class ReaderPage extends StatelessWidget {
+  const ReaderPage({
+    required this.overlayEnabled,
+    required this.onToggleOverlay,
+    super.key,
+  });
+
+  final bool overlayEnabled;
+  final VoidCallback onToggleOverlay;
+
+  @override
+  Widget build(BuildContext context) {
+    final info = Bifold.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('bifold'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: overlayEnabled ? 'Hide regions' : 'Show regions',
+            onPressed: onToggleOverlay,
+            icon: Icon(
+              overlayEnabled ? Icons.grid_off : Icons.grid_on,
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: <Widget>[
+          _StatusBar(info: info),
+          Expanded(
+            child: BifoldSplit(
+              start: const _Page(
+                number: 1,
+                title: 'On folding',
+                body:
+                    'The panes above and below this line are placed clear of '
+                    'the crease and its margins. Fold the device part-way to '
+                    'see them separate.',
+              ),
+              end: const _Page(
+                number: 2,
+                title: 'On falling back',
+                body:
+                    'When there is no active division — flat, shut, or on a '
+                    'phone that does not fold — the two pages stack instead. '
+                    'Nothing throws and nothing is hidden.',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Live read-out of what the platform is reporting.
+class _StatusBar extends StatelessWidget {
+  const _StatusBar({required this.info});
+
+  final FoldInfo info;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final division = info.division;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: DefaultTextStyle(
+        style: theme.textTheme.bodySmall!,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: <Widget>[
+                _Chip(
+                  label: info.isFoldable ? 'foldable' : 'not foldable',
+                  highlight: info.isFoldable,
+                ),
+                _Chip(label: 'display: ${info.display.name}'),
+                _Chip(label: 'pose: ${info.pose.name}'),
+                _Chip(
+                  label: '${info.regions.length} region'
+                      '${info.regions.length == 1 ? '' : 's'}',
+                ),
+                _Chip(
+                  label: division == null
+                      ? 'no active division'
+                      : 'division active',
+                  highlight: division != null,
+                ),
+              ],
+            ),
+            if (!info.isFoldable) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                'This device reports no fold. Everything below still lays out '
+                'and nothing throws.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({required this.label, this.highlight = false});
+
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: highlight ? scheme.primary : scheme.surface,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          color: highlight ? scheme.onPrimary : scheme.onSurface,
+        ),
+      ),
+    );
+  }
+}
+
+class _Page extends StatelessWidget {
+  const _Page({
+    required this.number,
+    required this.title,
+    required this.body,
+  });
+
+  final int number;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.surface,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Page $number',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(title, style: theme.textTheme.titleMedium),
+          const SizedBox(height: 10),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Text(body, style: theme.textTheme.bodyMedium),
+            ),
+          ),
+        ],
       ),
     );
   }
