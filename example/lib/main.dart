@@ -1,6 +1,29 @@
 import 'package:bifold/bifold.dart';
 import 'package:flutter/material.dart';
 
+/// Content the system may show on the outer display during camera capture.
+///
+/// Runs in its own Flutter engine, so it is a separate entrypoint. The pragma
+/// keeps it from being tree-shaken out of a release build.
+@pragma('vm:entry-point')
+void captureAccessoryMain() {
+  runApp(
+    const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: ColoredBox(
+        color: Color(0xFF101014),
+        child: Center(
+          child: Text(
+            'You are on camera',
+            textDirection: TextDirection.ltr,
+            style: TextStyle(color: Color(0xFFFFFFFF), fontSize: 20),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   // One scope at the root. Everything below it can read fold state.
   runApp(const BifoldScope(child: ExampleApp()));
@@ -132,6 +155,12 @@ class _StatusBar extends StatelessWidget {
                   label: '${info.regions.length} region'
                       '${info.regions.length == 1 ? '' : 's'}',
                 ),
+                _Chip(
+                  label: 'size: ${info.horizontalSizeClass.name}/'
+                      '${info.verticalSizeClass.name}',
+                ),
+                if (info.verticalBarEdge != VerticalBarEdge.unspecified)
+                  _Chip(label: 'bar: ${info.verticalBarEdge.name}'),
                 _Chip(
                   label: division == null
                       ? 'no active division'

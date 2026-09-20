@@ -124,12 +124,16 @@ final class FoldReader {
 
     let regions = readRegions(from: view)
     let display = readDisplay(for: view)
+    let traits = view.traitCollection
     var payload: [String: Any] = [
       "version": version,
       "isFoldable": true,
       "display": display,
       "pose": pose(display: display, regions: regions),
       "regions": regions,
+      "horizontalSizeClass": FoldReader.sizeClassName(traits.horizontalSizeClass),
+      "verticalSizeClass": FoldReader.sizeClassName(traits.verticalSizeClass),
+      "verticalBarEdge": FoldReader.verticalBarEdgeName(traits),
     ]
     if let angle = hinge.state?.angle {
       payload["hingeAngle"] = angle
@@ -153,6 +157,46 @@ final class FoldReader {
       return true
     }
     return UIDevice.current.userInterfaceIdiom == .phone
+  }
+
+  /// Names a `UIUserInterfaceSizeClass` for the channel.
+  ///
+  /// Apple's guidance for this device is to lay out against size classes
+  /// rather than orientation, because the inner display does not honour an
+  /// app's supported interface orientations. Exposing them saves every caller
+  /// from reaching for a platform channel of their own.
+  private static func sizeClassName(_ value: UIUserInterfaceSizeClass) -> String {
+    switch value {
+    case .compact: return "compact"
+    case .regular: return "regular"
+    default: return "unspecified"
+    }
+  }
+
+  /// Reads `UITraitCollection.verticalBarEdge`.
+  ///
+  /// VERIFIED `UIVerticalBarEdge.h`, iOS 27.1 SDK:
+  /// `UIVerticalBarEdgeUnspecified = 0`, `Leading = 1`, `Trailing = 2`, read
+  /// from `@property (nonatomic, readonly) UIVerticalBarEdge verticalBarEdge`.
+  ///
+  /// The header notes this "reflects the system's preferred edge regardless of
+  /// whether a vertical bar is currently visible", and is `Unspecified` on
+  /// hardware or in contexts with no vertical bar — which is why it degrades
+  /// cleanly on every other device.
+  ///
+  /// Resolved through the runtime so the package still builds on Xcode 26.x.
+  private static func verticalBarEdgeName(_ traits: UITraitCollection) -> String {
+    let selector = NSSelectorFromString("verticalBarEdge")
+    guard traits.responds(to: selector),
+      let raw = traits.value(forKey: "verticalBarEdge") as? Int
+    else {
+      return "unspecified"
+    }
+    switch raw {
+    case 1: return "leading"
+    case 2: return "trailing"
+    default: return "unspecified"
+    }
   }
 
   /// Which display the view is currently presented on.
@@ -393,6 +437,12 @@ final class LayoutSentinel: UIView {
     super.layoutSubviews()
     // Regions lag the hinge, so report on every layout rather than only when
     // the size changes: an unchanged size can still mean new regions.
+    //
+    // This is also the lifecycle event Apple names for observing a scene
+    // accessory's availability, so the capture accessory is refreshed here.
+    if #available(iOS 27.1, *) {
+      CaptureAccessory.shared?.refreshAvailability()
+    }
     onLayout?()
   }
 

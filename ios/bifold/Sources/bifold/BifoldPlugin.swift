@@ -5,6 +5,7 @@ import UIKit
 private enum Channels {
   static let methods = "dev.bifold/methods"
   static let events = "dev.bifold/fold_info"
+  static let accessoryEvents = "dev.bifold/capture_accessory"
 }
 
 /// Stable error codes surfaced to Dart as `FlutterError`.
@@ -14,6 +15,7 @@ private enum Channels {
 private enum ErrorCode {
   static let noView = "no_view"
   static let unsupported = "unsupported_os"
+  static let badArguments = "bad_arguments"
 }
 
 /// The payload version stamped on every message.
@@ -26,6 +28,9 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   private let foldReader: FoldReader
   private var eventSink: FlutterEventSink?
   private var observation: FoldObservation?
+
+  /// Sink for capture-accessory availability, when Dart is listening.
+  private var accessorySink: FlutterEventSink?
 
   /// The last payload sent, so an unchanged state is not resent.
   ///
@@ -62,6 +67,22 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
       binaryMessenger: registrar.messenger()
     )
     eventChannel.setStreamHandler(instance)
+
+    let accessoryChannel = FlutterEventChannel(
+      name: Channels.accessoryEvents,
+      binaryMessenger: registrar.messenger()
+    )
+    accessoryChannel.setStreamHandler(
+      CaptureAccessoryStreamHandler(plugin: instance)
+    )
+  }
+
+  /// Wires the accessory availability stream to the plugin.
+  fileprivate func setAccessorySink(_ sink: FlutterEventSink?) {
+    accessorySink = sink
+    if #available(iOS 27.1, *), let sink {
+      sink(CaptureAccessory.shared?.isAvailable ?? false)
+    }
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -86,7 +107,75 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
     case "isSupported":
       result(FoldReader.isSupported)
     case "debugDescribeNativeApi":
-      result(NativeApiProbe.describe())
+      result(NativeApiProbe.describe(view: flutterView()))
+
+    case "captureAccessorySupported":
+      if #available(iOS 27.1, *) {
+        result(CaptureAccessory.isSupported)
+      } else {
+        result(false)
+      }
+
+    case "registerCaptureAccessory":
+      guard #available(iOS 27.1, *) else {
+        result(false)
+        return
+      }
+      guard let args = call.arguments as? [String: Any],
+        let entrypoint = args["entrypoint"] as? String
+      else {
+        result(
+          FlutterError(
+            code: ErrorCode.badArguments,
+            message: "registerCaptureAccessory requires an entrypoint.",
+            details: nil
+          )
+        )
+        return
+      }
+      guard let host = registrar?.viewController else {
+        result(
+          FlutterError(
+            code: ErrorCode.noView,
+            message: "The Flutter view controller is not available yet.",
+            details: nil
+          )
+        )
+        return
+      }
+      let registered = CaptureAccessory.register(
+        on: host,
+        entrypoint: entrypoint,
+        libraryURI: args["libraryUri"] as? String
+      )
+      if registered {
+        CaptureAccessory.shared?.onAvailabilityChanged = { [weak self] available in
+          self?.accessorySink?(available)
+        }
+      }
+      result(registered)
+
+    case "unregisterCaptureAccessory":
+      if #available(iOS 27.1, *) {
+        CaptureAccessory.unregister()
+      }
+      result(nil)
+
+    case "setCaptureAccessoryEnabled":
+      guard #available(iOS 27.1, *) else {
+        result(nil)
+        return
+      }
+      let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool
+      CaptureAccessory.shared?.isEnabled = enabled ?? false
+      result(nil)
+
+    case "isCaptureAccessoryAvailable":
+      if #available(iOS 27.1, *) {
+        result(CaptureAccessory.shared?.isAvailable ?? false)
+      } else {
+        result(false)
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -159,6 +248,33 @@ extension BifoldPlugin: FlutterStreamHandler {
     observation = nil
     eventSink = nil
     lastPayload = nil
+    return nil
+  }
+}
+
+
+/// Stream handler for capture-accessory availability.
+///
+/// Separate from the fold stream so that listening for one does not start the
+/// other. Availability is pushed from the layout lifecycle, which is where
+/// UIKit documents the value as observable.
+private final class CaptureAccessoryStreamHandler: NSObject, FlutterStreamHandler {
+  private weak var plugin: BifoldPlugin?
+
+  init(plugin: BifoldPlugin) {
+    self.plugin = plugin
+  }
+
+  func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    plugin?.setAccessorySink(events)
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    plugin?.setAccessorySink(nil)
     return nil
   }
 }

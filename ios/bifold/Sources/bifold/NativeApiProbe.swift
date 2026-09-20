@@ -26,7 +26,7 @@ import UIKit
 enum NativeApiProbe {
 
   /// A human-readable dump of every fold-related symbol the runtime exposes.
-  static func describe() -> String {
+  static func describe(view: UIView? = nil) -> String {
     var out: [String] = [
       "bifold native API probe",
       "iOS \(UIDevice.current.systemVersion)",
@@ -53,6 +53,7 @@ enum NativeApiProbe {
       out.append("")
     }
 
+    out.append(describeLiveRegions(view: view))
     out.append(describeKindType())
     out.append(describeConstants())
     out.append(describeHinge())
@@ -84,6 +85,111 @@ enum NativeApiProbe {
     }
     out.append("")
     return out.joined(separator: "\n")
+  }
+
+  /// Calls the real selector, with the real kind objects, on the real view.
+  ///
+  /// This is the only check that exercises the exact path `FoldReader` takes.
+  /// The kind comes from `+[UIViewReservedRegionKind divisionRegionKind]`, not
+  /// from an exported constant — there are none.
+  private static func describeLiveRegions(view: UIView?) -> String {
+    var out: [String] = ["== live regions on the Flutter view =="]
+    guard let view else {
+      out.append("  (no view supplied)")
+      return out.joined(separator: "\n")
+    }
+    out.append("  view: \(type(of: view)) bounds=\(view.bounds)")
+    out.append("  window: \(String(describing: view.window))")
+
+    guard let kindClass = NSClassFromString("UIViewReservedRegionKind"),
+      let meta = object_getClass(kindClass)
+    else {
+      out.append("  UIViewReservedRegionKind missing")
+      return out.joined(separator: "\n")
+    }
+
+    for name in ["divisionRegionKind", "occlusionRegionKind"] {
+      let selector = NSSelectorFromString(name)
+      guard class_respondsToSelector(meta, selector),
+        let kind = (kindClass as AnyObject).perform(selector)?
+          .takeUnretainedValue()
+      else {
+        out.append("  \(name): unavailable")
+        continue
+      }
+
+      let one = NSSelectorFromString("reservedRegionsOfKind:")
+      let plain = view.responds(to: one)
+        ? view.perform(one, with: kind)?.takeUnretainedValue() as? [Any]
+        : nil
+      out.append("  \(name) plain          -> \(plain?.count ?? -1) \(plain.map { String(describing: $0) } ?? "nil")")
+
+      // And the options variant, with IncludeInactive.
+      typealias Call = @convention(c) (AnyObject, Selector, AnyObject, UInt)
+        -> AnyObject?
+      if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend") {
+        let call = unsafeBitCast(symbol, to: Call.self)
+        let withOptions = call(
+          view,
+          NSSelectorFromString("reservedRegionsOfKind:options:"),
+          kind,
+          1
+        ) as? [Any]
+        out.append("  \(name) includeInactive -> \(withOptions?.count ?? -1) \(withOptions.map { String(describing: $0) } ?? "nil")")
+      }
+    }
+
+    // Walk up to the window. If regions are reported on an ancestor but not on
+    // the Flutter view, the reader is asking the wrong view.
+    out.append("  -- ancestors --")
+    var node: UIView? = view.superview
+    var depth = 1
+    while let current = node, depth < 8 {
+      out.append("   [\(depth)] \(type(of: current)) bounds=\(current.bounds) -> \(countRegions(on: current))")
+      node = current.superview
+      depth += 1
+    }
+    if let window = view.window {
+      out.append("   [window] \(type(of: window)) -> \(countRegions(on: window))")
+      if let root = window.rootViewController?.view {
+        out.append("   [rootVC.view] \(type(of: root)) -> \(countRegions(on: root))")
+      }
+    }
+    out.append("")
+    return out.joined(separator: "\n")
+  }
+
+  /// Total regions of both kinds reported on `view`, including inactive.
+  private static func countRegions(on view: UIView) -> String {
+    guard let kindClass = NSClassFromString("UIViewReservedRegionKind"),
+      let meta = object_getClass(kindClass),
+      let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend")
+    else {
+      return "?"
+    }
+    typealias Call = @convention(c) (AnyObject, Selector, AnyObject, UInt)
+      -> AnyObject?
+    let call = unsafeBitCast(symbol, to: Call.self)
+
+    var parts: [String] = []
+    for name in ["divisionRegionKind", "occlusionRegionKind"] {
+      let selector = NSSelectorFromString(name)
+      guard class_respondsToSelector(meta, selector),
+        let kind = (kindClass as AnyObject).perform(selector)?
+          .takeUnretainedValue()
+      else { continue }
+      let result = call(
+        view,
+        NSSelectorFromString("reservedRegionsOfKind:options:"),
+        kind,
+        1
+      ) as? [Any]
+      parts.append("\(name.prefix(3))=\(result?.count ?? -1)")
+      if let first = result?.first {
+        parts.append("first=\(first)")
+      }
+    }
+    return parts.joined(separator: " ")
   }
 
   // MARK: - Constants

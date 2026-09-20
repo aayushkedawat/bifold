@@ -23,6 +23,8 @@
 library;
 
 export 'src/bifold_platform_interface.dart' show BifoldPlatform;
+export 'src/capture_accessory.dart' show BifoldCaptureAccessory;
+export 'src/anchoring.dart' show bifoldAnchorPoint;
 export 'src/fakes.dart' show FoldInfoFakes;
 export 'src/method_channel_bifold.dart' show MethodChannelBifold;
 export 'src/models.dart'
@@ -31,8 +33,12 @@ export 'src/models.dart'
         FoldInfo,
         FoldPose,
         FoldRegion,
+        FoldSizeClass,
         RegionKind,
+        VerticalBarEdge,
         kBifoldPayloadVersion;
 export 'src/widgets/bifold_debug_overlay.dart' show BifoldDebugOverlay;
+export 'src/widgets/bifold_display_features.dart' show BifoldDisplayFeatures;
+export 'src/widgets/bifold_grid.dart' show BifoldGrid;
 export 'src/widgets/bifold_scope.dart' show Bifold, BifoldScope;
 export 'src/widgets/bifold_split.dart' show BifoldSplit, BifoldSplitFallback;

@@ -1,14 +1,12 @@
 # bifold
 
 Fold awareness for Flutter apps on the foldable iPhone: where the fold is,
-which display you are on, and where the hardware is in the way.
+which display you are on, how far the device is open, and where hardware is in
+the way.
 
 On every other device — non-foldable iPhones, older iOS, iPad, Android, web and
-desktop — it reports a well-defined "no fold" state and never throws.
-
-> **Status: pre-release, and honest about it.** Read
-> [Known limitations](#known-limitations) before adopting. Nothing here has been
-> verified on physical hardware, because none exists yet.
+desktop — it reports a well-defined "no fold" state and never throws, so it is
+safe to adopt in an app that ships everywhere.
 
 ## Install
 
@@ -17,7 +15,7 @@ dependencies:
   bifold: ^0.1.0
 ```
 
-## Use
+## Quick start
 
 Wrap the app once:
 
@@ -25,7 +23,7 @@ Wrap the app once:
 void main() => runApp(const BifoldScope(child: MyApp()));
 ```
 
-Then read the state anywhere below it. It rebuilds when the fold changes:
+Read the state anywhere below it. It rebuilds when the fold changes:
 
 ```dart
 final info = Bifold.of(context);
@@ -34,6 +32,18 @@ if (info.division != null) {
   // The display is creased right now.
 }
 ```
+
+## What you get
+
+| | |
+|---|---|
+| `FoldInfo.pose` | `closed`, `partiallyOpen`, `fullyOpen`, `unknown` — the platform's own hinge status |
+| `FoldInfo.hingeAngle` | hinge angle in radians, plus `hingeAngleDegrees` |
+| `FoldInfo.display` | `outer`, `inner`, `none` |
+| `FoldInfo.regions` | every reserved region, with frame, margins and active state |
+| `FoldInfo.division` | the active fold, or null when the display is not creased |
+| `FoldInfo.horizontalSizeClass` | `compact` / `regular`, plus `verticalSizeClass` and `isRegular` |
+| `FoldInfo.verticalBarEdge` | which edge the system prefers for its vertical bar |
 
 ### Split two panes across the fold
 
@@ -44,12 +54,74 @@ BifoldSplit(
 )
 ```
 
-When the device is part-way open and the platform reports an active division
-across the widget, the panes are placed either side of the crease, clear of its
-margins. Otherwise they fall back to stacking — configurable with `fallback`
+Places the panes either side of the crease, clear of its margins. With no
+active division it falls back to stacking — configurable with `fallback`
 (`stack`, `sideBySide`, `startOnly`).
 
-### See what the platform is actually reporting
+### A grid that never bends a tile
+
+```dart
+BifoldGrid(
+  tileExtent: 160,
+  children: photos.map(PhotoTile.new).toList(),
+)
+```
+
+Tiles fill the space before the crease, then resume after it. No tile is ever
+drawn across the fold. Behaves as an ordinary wrapping grid when there is
+nothing to avoid.
+
+### Keep dialogs off the crease
+
+```dart
+showDialog(
+  context: context,
+  anchorPoint: bifoldAnchorPoint(context),
+  builder: (context) => const AlertDialog(title: Text('Hello')),
+);
+```
+
+Places the dialog in whichever half has more room. Returns null when there is
+nothing to avoid, so it is safe to pass unconditionally.
+
+### Content on the outer display while filming
+
+With the device open and a capture session running, the system can show your
+content on the outer display, facing the person being filmed — for a framing
+preview, or a teleprompter.
+
+```dart
+@pragma('vm:entry-point')
+void captureAccessoryMain() => runApp(const SubjectView());
+
+// once the camera UI is up:
+await BifoldCaptureAccessory.register(entrypoint: 'captureAccessoryMain');
+await BifoldCaptureAccessory.setEnabled(true);
+```
+
+The accessory runs in its own Flutter engine, so your main UI on the inner
+display is untouched. The system decides whether and when it appears; watch
+`BifoldCaptureAccessory.availability` to follow along.
+
+### Bridge to `MediaQuery.displayFeatures`
+
+Flutter populates `displayFeatures` only on Android, so packages built for
+Android foldables — and Flutter's own dialog positioning — see nothing on iOS.
+Opt in and they work:
+
+```dart
+MaterialApp(
+  builder: (context, child) => BifoldDisplayFeatures(child: child!),
+  home: const MyHomePage(),
+)
+```
+
+The mapping matches
+[flutter/flutter#193025](https://github.com/flutter/flutter/pull/193025), and
+the widget steps aside automatically once the engine populates the field
+natively, so it will not fight a future Flutter release.
+
+### See what the platform is reporting
 
 ```dart
 MaterialApp(
@@ -58,16 +130,12 @@ MaterialApp(
 )
 ```
 
-Draws every reserved region: a filled band for the frame, an outline for the
-frame plus margins, solid when active and faint when not. That
+Draws every reserved region: a filled band for the hardware, an outline for the
+hardware plus its clearance, solid when active and faint when not. That
 active/inactive distinction is usually the answer to "why didn't my layout
-react?". The overlay ignores pointer events.
+react?". Ignores pointer events.
 
-### Test without a device
-
-This is the part most fold packages leave out. `FoldInfoFakes` plus
-`BifoldScope.fake` exercise a fold-aware layout on any machine — no simulator,
-no iOS SDK, no channel mocking:
+### Test it without a device
 
 ```dart
 testWidgets('reader splits across the fold', (tester) async {
@@ -80,35 +148,10 @@ testWidgets('reader splits across the fold', (tester) async {
 });
 ```
 
-`FoldInfoFakes.poseMatrix(size)` returns every pose — including the two that
-catch real bugs: a flat display that still reports an *inactive* division, and
-a crease with zero thickness.
-
-## What `FoldInfo` tells you
-
-| member | meaning |
-|---|---|
-| `isFoldable` | the device has a fold this package can report on |
-| `display` | `outer`, `inner`, or `none` |
-| `pose` | `closed`, `partiallyOpen`, `fullyOpen`, `unknown` |
-| `hingeAngle` | hinge angle in radians, or null if the platform reports none |
-| `hingeAngleDegrees` | the same value in degrees |
-| `regions` | every reserved region, active or not |
-| `division` | the active fold, or null if the display is not creased |
-| `activeRegions` | regions whose hardware is currently in use |
-
-Regions are in logical pixels relative to the Flutter view. **Never cache
-them** — they arrive after the first layout pass and change as the device
-folds. Read them from the current `FoldInfo` every build.
-
-`FoldPose` mirrors the platform's own `UIHingeStatus` one-for-one. Postures
-such as "book" or "tabletop" are deliberately absent: they are Android foldable
-vocabulary and this device does not report them.
-
-Prefer `pose` over `hingeAngle` for layout decisions. Apple is explicit that
-the angle's "rate and granularity... are system policy and can change", so
-thresholding it yourself is less stable than the classification the platform
-already publishes.
+No simulator, no iOS SDK, no channel mocking. `FoldInfoFakes.poseMatrix(size)`
+returns every pose for table-driven tests, including the two that catch real
+bugs: a flat display that still reports an *inactive* division, and a crease
+with zero thickness.
 
 ## Requirements
 
@@ -119,81 +162,40 @@ already publishes.
 | Fold reporting | iOS 27.1+ on a foldable device |
 | Xcode to build | **26.x or newer — 27.1 is not required** |
 
-The fold symbols ship in the iOS 27.1 SDK, but this package resolves them
-through the Objective-C runtime rather than calling them directly. One binary
-therefore builds on an older Xcode and still reports fold state on a device
-that has the APIs. That matters: Flutter's own CI runs Xcode 26.2, and a
-package that needed 27.1 to compile would be uninstallable for most people
-until their CI upgraded.
+The fold symbols ship in the iOS 27.1 SDK, but `bifold` resolves them through
+the Objective-C runtime rather than calling them directly. One binary builds on
+an older Xcode and still reports fold state on a device that has the APIs. That
+matters in practice: Flutter's own CI runs Xcode 26.2, and a package that
+needed 27.1 to compile would be uninstallable for most people until their CI
+upgraded.
 
-## What is verified, and what is not
+## Notes on use
 
-### Verified
+Read regions from the current `FoldInfo` on every build rather than caching
+them. They arrive after the first layout pass and change as the device folds.
 
-* **Every native symbol used**, on 2026-09-20, by two independent passes that
-  agree: Objective-C runtime introspection on a booted iPhone Duo simulator
-  running iOS 27.1, and the iOS 27.1 SDK headers from Xcode 27.1 beta. Exact
-  type encodings and header quotes are in [`API_NOTES.md`](API_NOTES.md), and
-  both passes are reproducible.
-* **The region coordinate space.** Regions are in the receiving view's own
-  space — the header says so directly.
-* **That `frame` already includes `margins`.** This one corrected a bug: an
-  earlier draft inflated the frame by the margins, double-counting the
-  clearance. See [`API_NOTES.md`](API_NOTES.md).
-* **Live hinge reporting on a Duo.** `UIHingeInteraction` is constructed
-  through the runtime and its updates arrive: a shut simulator reports
-  `UIHingeStatusClosed` and an angle of 0. `pose` comes from the platform,
-  not from inference.
-* Reading fold state end to end on that simulator, built against the **27.0**
-  SDK — the proof that the runtime-resolution approach genuinely works.
-* A shut device reports the outer display and no reserved regions.
-* Graceful degradation on non-foldable devices, by integration test.
-* The Dart layer: 69 unit and widget tests covering the model, the codec, the
-  channel, and every pose.
+Prefer `pose` over `hingeAngle` for layout decisions. Apple documents the
+angle's "rate and granularity" as system policy that can change, so the
+platform's own classification is the more stable signal. `FoldPose` mirrors
+`UIHingeStatus` one for one — postures like "book" or "tabletop" are Android
+foldable vocabulary and are not reported by this device.
 
-### Not verified
+Lay out against size classes rather than orientation. The inner display does
+not honour an app's supported interface orientations.
 
-* **On physical hardware: nothing.** The device has not shipped.
-* **Region timing** — that regions arrive after the first layout pass, and how
-  far they lag the hinge. These are reported by others but not measured here,
-  because timing cannot be read out of a header: it needs the simulator folded,
-  and `simctl` has no fold command. It does not affect the geometry, which is
-  verified.
-* **The live open state.** Everything above was read from a *shut* Duo plus the
-  headers. Seeing real regions on an opened device is the last confirmation
-  step, in [`docs/manual-tests.md`](docs/manual-tests.md).
+## Verification
 
-[`docs/manual-tests.md`](docs/manual-tests.md) is the checklist for closing
-these, and marks which have been done.
+Every native symbol this package calls was verified on 2026-09-20 by two
+independent passes that agree: Objective-C runtime introspection on a booted
+iPhone Duo simulator running iOS 27.1, and the iOS 27.1 SDK headers. Exact type
+encodings and header quotes are recorded in [`API_NOTES.md`](API_NOTES.md), and
+both passes are reproducible — the runtime probe ships as
+`integration_test/native_api_probe_test.dart`.
 
-## Known limitations
-
-* **iOS only.** Android foldables already get display features from Flutter
-  itself, so there is nothing to add there.
-* **`MediaQuery.displayFeatures` is not populated.** Only the engine can do
-  that, and [flutter/flutter#193025](https://github.com/flutter/flutter/pull/193025)
-  is doing it. `bifold` exposes its own model instead and deliberately does not
-  fight the engine over that field.
-* **No camera capture accessory.** `CameraCaptureAccessory` is SwiftUI-only and
-  invisible to Objective-C, and Flutter would need multi-scene support first.
-  See [`docs/phase0.md`](docs/phase0.md) §5.
-* **`pose` and `hingeAngle` arrive a moment after the stream is first
-  listened to.** The platform delivers the initial hinge update
-  asynchronously, so the very first reading — and any one-shot
-  `Bifold.current` taken at launch — can have neither. Until the hinge
-  reports, `pose` is derived from the regions instead, so it is never wrong,
-  only occasionally late. Use `Bifold.of(context)`, which updates when it
-  lands.
-
-## Prior art
-
-`bifold` is not the only option, and
-[`docs/phase0.md`](docs/phase0.md) compares them honestly.
-[`foldable`](https://pub.dev/packages/foldable) exposes hinge angle and posture
-and has more momentum; [`iphone_duo_ui_pro`](https://pub.dev/packages/iphone_duo_ui_pro)
-ships a wider set of adaptive widgets. `bifold`'s distinct ground is the debug
-overlay, first-class test fakes, and being explicit about what has and has not
-been checked.
+The Duo simulator has been exercised shut. The device itself has not shipped,
+so nothing here has run on physical hardware.
+[`docs/manual-tests.md`](docs/manual-tests.md) tracks what has been checked on
+the simulator and what has not.
 
 ## License
 

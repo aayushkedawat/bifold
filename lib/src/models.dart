@@ -76,6 +76,53 @@ enum FoldPose {
   };
 }
 
+/// A UIKit size class, as reported for the Flutter view.
+///
+/// Apple's guidance for the foldable iPhone is to lay out against size classes
+/// rather than orientation: the inner display does not honour an app's
+/// supported interface orientations, and reports regular in both axes, while
+/// the outer display behaves like a conventional phone.
+enum FoldSizeClass {
+  /// Constrained on this axis — a conventional phone width, for instance.
+  compact,
+
+  /// Roomy on this axis. The inner display is regular in both axes.
+  regular,
+
+  /// Not reported, which is the case on platforms without size classes.
+  unspecified;
+
+  /// Decodes a [FoldSizeClass] from its platform channel spelling.
+  static FoldSizeClass fromName(String? name) => switch (name) {
+    'compact' => FoldSizeClass.compact,
+    'regular' => FoldSizeClass.regular,
+    _ => FoldSizeClass.unspecified,
+  };
+}
+
+/// Which edge the system places its vertical bar on.
+///
+/// The vertical bar is system UI that can run down one side of the display.
+/// This reports the system's *preferred* edge whether or not a bar is
+/// currently visible, so a layout can reserve the right side in advance.
+enum VerticalBarEdge {
+  /// No vertical bar is used in this context, or the platform has none.
+  unspecified,
+
+  /// The bar sits on the leading edge — left in a left-to-right locale.
+  leading,
+
+  /// The bar sits on the trailing edge — right in a left-to-right locale.
+  trailing;
+
+  /// Decodes a [VerticalBarEdge] from its platform channel spelling.
+  static VerticalBarEdge fromName(String? name) => switch (name) {
+    'leading' => VerticalBarEdge.leading,
+    'trailing' => VerticalBarEdge.trailing,
+    _ => VerticalBarEdge.unspecified,
+  };
+}
+
 /// What a [FoldRegion] represents.
 enum RegionKind {
   /// The fold itself: the crease running across the inner display.
@@ -250,6 +297,9 @@ class FoldInfo {
     required this.pose,
     required this.regions,
     this.hingeAngle,
+    this.horizontalSizeClass = FoldSizeClass.unspecified,
+    this.verticalSizeClass = FoldSizeClass.unspecified,
+    this.verticalBarEdge = VerticalBarEdge.unspecified,
   });
 
   /// The state reported on every device and platform without fold support.
@@ -291,6 +341,15 @@ class FoldInfo {
       pose: FoldPose.fromName(map['pose'] as String?),
       regions: List<FoldRegion>.unmodifiable(regions),
       hingeAngle: rawAngle is num ? rawAngle.toDouble() : null,
+      horizontalSizeClass: FoldSizeClass.fromName(
+        map['horizontalSizeClass'] as String?,
+      ),
+      verticalSizeClass: FoldSizeClass.fromName(
+        map['verticalSizeClass'] as String?,
+      ),
+      verticalBarEdge: VerticalBarEdge.fromName(
+        map['verticalBarEdge'] as String?,
+      ),
     );
   }
 
@@ -338,6 +397,24 @@ class FoldInfo {
   double? get hingeAngleDegrees =>
       hingeAngle == null ? null : hingeAngle! * 180.0 / math.pi;
 
+  /// The horizontal size class of the Flutter view.
+  ///
+  /// Prefer this over orientation for layout decisions. The inner display
+  /// reports regular in both axes; the outer display behaves like a
+  /// conventional phone.
+  final FoldSizeClass horizontalSizeClass;
+
+  /// The vertical size class of the Flutter view.
+  final FoldSizeClass verticalSizeClass;
+
+  /// Which edge the system prefers for its vertical bar.
+  final VerticalBarEdge verticalBarEdge;
+
+  /// Whether both size classes are regular, which the inner display reports.
+  bool get isRegular =>
+      horizontalSizeClass == FoldSizeClass.regular &&
+      verticalSizeClass == FoldSizeClass.regular;
+
   /// The active fold, if the display is currently creased.
   ///
   /// Null when the device is flat, folded shut, on the outer display, or not
@@ -359,12 +436,18 @@ class FoldInfo {
     FoldPose? pose,
     List<FoldRegion>? regions,
     double? hingeAngle,
+    FoldSizeClass? horizontalSizeClass,
+    FoldSizeClass? verticalSizeClass,
+    VerticalBarEdge? verticalBarEdge,
   }) => FoldInfo(
     isFoldable: isFoldable ?? this.isFoldable,
     display: display ?? this.display,
     pose: pose ?? this.pose,
     regions: regions ?? this.regions,
     hingeAngle: hingeAngle ?? this.hingeAngle,
+    horizontalSizeClass: horizontalSizeClass ?? this.horizontalSizeClass,
+    verticalSizeClass: verticalSizeClass ?? this.verticalSizeClass,
+    verticalBarEdge: verticalBarEdge ?? this.verticalBarEdge,
   );
 
   @override
@@ -375,6 +458,9 @@ class FoldInfo {
           other.display == display &&
           other.pose == pose &&
           other.hingeAngle == hingeAngle &&
+          other.horizontalSizeClass == horizontalSizeClass &&
+          other.verticalSizeClass == verticalSizeClass &&
+          other.verticalBarEdge == verticalBarEdge &&
           listEquals(other.regions, regions);
 
   @override
@@ -383,6 +469,9 @@ class FoldInfo {
     display,
     pose,
     hingeAngle,
+    horizontalSizeClass,
+    verticalSizeClass,
+    verticalBarEdge,
     Object.hashAll(regions),
   );
 
