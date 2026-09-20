@@ -101,16 +101,12 @@ class _HomePageState extends State<HomePage> {
                 ? 'displayFeatures bridge on'
                 : 'displayFeatures bridge off',
             onPressed: widget.onToggleBridge,
-            icon: Icon(
-              widget.bridgeEnabled ? Icons.link : Icons.link_off,
-            ),
+            icon: Icon(widget.bridgeEnabled ? Icons.link : Icons.link_off),
           ),
           IconButton(
             tooltip: widget.overlayEnabled ? 'Hide regions' : 'Show regions',
             onPressed: widget.onToggleOverlay,
-            icon: Icon(
-              widget.overlayEnabled ? Icons.grid_off : Icons.grid_on,
-            ),
+            icon: Icon(widget.overlayEnabled ? Icons.grid_off : Icons.grid_on),
           ),
         ],
       ),
@@ -174,18 +170,17 @@ class StatusBar extends StatelessWidget {
               Chip2(label: 'display: ${info.display.name}'),
               Chip2(label: 'pose: ${info.pose.name}'),
               if (degrees != null)
-                Chip2(
-                  label: '${degrees.toStringAsFixed(0)}°',
-                  highlight: true,
-                ),
+                Chip2(label: '${degrees.toStringAsFixed(0)}°', highlight: true),
               Chip2(
-                label: 'size: ${info.horizontalSizeClass.name}/'
+                label:
+                    'size: ${info.horizontalSizeClass.name}/'
                     '${info.verticalSizeClass.name}',
               ),
               if (info.verticalBarEdge != VerticalBarEdge.unspecified)
                 Chip2(label: 'bar: ${info.verticalBarEdge.name}'),
               Chip2(
-                label: '${info.regions.length} region'
+                label:
+                    '${info.regions.length} region'
                     '${info.regions.length == 1 ? '' : 's'}',
               ),
               Chip2(
@@ -258,7 +253,11 @@ class SubjectView extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                Icon(Icons.fiber_manual_record, color: Color(0xFFFF5252), size: 40),
+                Icon(
+                  Icons.fiber_manual_record,
+                  color: Color(0xFFFF5252),
+                  size: 40,
+                ),
                 SizedBox(height: 12),
                 Text(
                   'You are on camera',

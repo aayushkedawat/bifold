@@ -24,9 +24,8 @@ class InspectorPage extends StatelessWidget {
             ),
             IconButton(
               tooltip: 'Copy as text',
-              onPressed: () => Clipboard.setData(
-                ClipboardData(text: _describe(info)),
-              ),
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: _describe(info))),
               icon: const Icon(Icons.copy, size: 18),
             ),
           ],
@@ -40,7 +39,7 @@ class InspectorPage extends StatelessWidget {
           info.hingeAngle == null
               ? 'null'
               : '${info.hingeAngle!.toStringAsFixed(4)} rad '
-                  '(${info.hingeAngleDegrees!.toStringAsFixed(1)}°)',
+                    '(${info.hingeAngleDegrees!.toStringAsFixed(1)}°)',
         ),
         _Row('horizontalSizeClass', info.horizontalSizeClass.name),
         _Row('verticalSizeClass', info.verticalSizeClass.name),
@@ -77,8 +76,10 @@ class InspectorPage extends StatelessWidget {
       ..writeln('display: ${info.display.name}')
       ..writeln('pose: ${info.pose.name}')
       ..writeln('hingeAngle: ${info.hingeAngle}')
-      ..writeln('sizeClass: ${info.horizontalSizeClass.name}/'
-          '${info.verticalSizeClass.name}')
+      ..writeln(
+        'sizeClass: ${info.horizontalSizeClass.name}/'
+        '${info.verticalSizeClass.name}',
+      )
       ..writeln('verticalBarEdge: ${info.verticalBarEdge.name}')
       ..writeln('regions: ${info.regions.length}');
     for (final region in info.regions) {

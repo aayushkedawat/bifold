@@ -87,16 +87,18 @@ void main() {
       expect(find.textContaining('Regions (2)'), findsOneWidget);
     });
 
-    testWidgets('explains an empty region list rather than showing nothing',
-        (tester) async {
+    testWidgets('explains an empty region list rather than showing nothing', (
+      tester,
+    ) async {
       await pump(tester, const InspectorPage(), FoldInfoFakes.closed);
       expect(find.textContaining('No reserved regions'), findsOneWidget);
     });
   });
 
   group('navigation adapts to the size class', () {
-    testWidgets('a rail on the inner display, a bar on the outer',
-        (tester) async {
+    testWidgets('a rail on the inner display, a bar on the outer', (
+      tester,
+    ) async {
       tester.view
         ..physicalSize = kViewSize
         ..devicePixelRatio = 1.0;

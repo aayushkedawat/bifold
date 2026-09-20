@@ -164,21 +164,22 @@ class _RegionPainter extends CustomPainter {
 
     // A crease can be reported with zero thickness. Draw it as a hairline so
     // it is visible at all, rather than painting an empty rect.
-    final Rect drawnFrame = frame.height < _minimumTouchableBand && frame.width > frame.height
-        ? Rect.fromLTRB(
-            frame.left,
-            frame.center.dy - _minimumTouchableBand / 2,
-            frame.right,
-            frame.center.dy + _minimumTouchableBand / 2,
-          )
-        : frame.width < _minimumTouchableBand && frame.height > frame.width
-        ? Rect.fromLTRB(
-            frame.center.dx - _minimumTouchableBand / 2,
-            frame.top,
-            frame.center.dx + _minimumTouchableBand / 2,
-            frame.bottom,
-          )
-        : frame;
+    final Rect drawnFrame =
+        frame.height < _minimumTouchableBand && frame.width > frame.height
+            ? Rect.fromLTRB(
+                frame.left,
+                frame.center.dy - _minimumTouchableBand / 2,
+                frame.right,
+                frame.center.dy + _minimumTouchableBand / 2,
+              )
+            : frame.width < _minimumTouchableBand && frame.height > frame.width
+                ? Rect.fromLTRB(
+                    frame.center.dx - _minimumTouchableBand / 2,
+                    frame.top,
+                    frame.center.dx + _minimumTouchableBand / 2,
+                    frame.bottom,
+                  )
+                : frame;
 
     canvas.drawRect(
       drawnFrame,
@@ -208,8 +209,7 @@ class _RegionPainter extends CustomPainter {
     Color color,
     Rect drawnFrame,
   ) {
-    final String text =
-        '${region.kind.name}'
+    final String text = '${region.kind.name}'
         '${region.isActive ? '' : ' (inactive)'}  '
         '${region.frame.width.toStringAsFixed(0)}'
         '×'
@@ -240,7 +240,8 @@ class _RegionPainter extends CustomPainter {
     final Offset at = Offset(dx, dy);
 
     canvas.drawRect(
-      Rect.fromLTWH(at.dx - 2, at.dy - 1, painter.width + 4, painter.height + 2),
+      Rect.fromLTWH(
+          at.dx - 2, at.dy - 1, painter.width + 4, painter.height + 2),
       Paint()..color = const Color(0xCC000000),
     );
     painter.paint(canvas, at);

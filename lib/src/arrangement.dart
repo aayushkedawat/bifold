@@ -150,11 +150,12 @@ abstract final class BifoldArrangement {
   }) async {
     try {
       final Map<Object?, Object?>? result = await _channel
-          .invokeMapMethod<Object?, Object?>('measureArrangement', <String, Object?>{
-            'width': size.width,
-            'height': size.height,
-            'axis': axis.wireName,
-          });
+          .invokeMapMethod<Object?, Object?>(
+              'measureArrangement', <String, Object?>{
+        'width': size.width,
+        'height': size.height,
+        'axis': axis.wireName,
+      });
       if (result == null) {
         return null;
       }

@@ -1,9 +1,17 @@
 name: bifold
 description: "Fold awareness for the foldable iPhone: hinge angle and pose, reserved regions, fold-aware layout, a capture accessory for the outer display, a debug overlay and test fakes."
-version: 0.1.0-dev.1
+version: 0.1.0
 homepage: https://github.com/aayushkedawat/bifold
 repository: https://github.com/aayushkedawat/bifold
 issue_tracker: https://github.com/aayushkedawat/bifold/issues
+
+# Searchable tags on pub.dev. Max five, lowercase, hyphens only.
+topics:
+  - foldable
+  - ios
+  - adaptive-layout
+  - responsive
+  - hinge
 
 environment:
   # Color.withValues is the binding API, added in Flutter 3.27 / Dart 3.6.

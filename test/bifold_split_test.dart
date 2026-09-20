@@ -185,15 +185,15 @@ void main() {
       addTearDown(tester.view.reset);
 
       Widget build(FoldInfo info) => Directionality(
-        textDirection: TextDirection.ltr,
-        child: BifoldScope.fake(
-          info: info,
-          child: const BifoldSplit(
-            start: _Pane('start'),
-            end: _Pane('end'),
-          ),
-        ),
-      );
+            textDirection: TextDirection.ltr,
+            child: BifoldScope.fake(
+              info: info,
+              child: const BifoldSplit(
+                start: _Pane('start'),
+                end: _Pane('end'),
+              ),
+            ),
+          );
 
       await tester.pumpWidget(build(FoldInfoFakes.closed));
       await tester.pump();

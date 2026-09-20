@@ -57,8 +57,7 @@ class BifoldGrid extends StatelessWidget {
         final int columns = _columnsFor(width - padding.horizontal);
 
         final FoldRegion? division = info.division;
-        final bool splitHorizontally =
-            division != null &&
+        final bool splitHorizontally = division != null &&
             division.isHorizontal &&
             constraints.hasBoundedHeight &&
             division.isSeparating(Size(width, constraints.maxHeight));
@@ -69,7 +68,8 @@ class BifoldGrid extends StatelessWidget {
 
         // Fill the space above the crease with as many whole rows as fit, then
         // start the remainder below it.
-        final double rowHeight = _rowHeight(width - padding.horizontal, columns);
+        final double rowHeight =
+            _rowHeight(width - padding.horizontal, columns);
         final int rowsAbove = rowHeight <= 0
             ? 0
             : (division.frame.top - padding.top) ~/ rowHeight;
@@ -103,13 +103,13 @@ class BifoldGrid extends StatelessWidget {
     if (available <= 0) {
       return 1;
     }
-    final int columns = ((available + spacing) / (tileExtent + spacing)).floor();
+    final int columns =
+        ((available + spacing) / (tileExtent + spacing)).floor();
     return columns < 1 ? 1 : columns;
   }
 
   double _rowHeight(double available, int columns) {
-    final double tile =
-        (available - spacing * (columns - 1)) / columns;
+    final double tile = (available - spacing * (columns - 1)) / columns;
     return tile + spacing;
   }
 
@@ -126,9 +126,7 @@ class BifoldGrid extends StatelessWidget {
       crossAxisCount: columns,
       mainAxisSpacing: spacing,
       crossAxisSpacing: spacing,
-      physics: scrollable
-          ? null
-          : const NeverScrollableScrollPhysics(),
+      physics: scrollable ? null : const NeverScrollableScrollPhysics(),
       shrinkWrap: !scrollable,
       children: tiles,
     );

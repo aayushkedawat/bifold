@@ -16,13 +16,20 @@ class _GalleryPageState extends State<GalleryPage> {
   bool _foldAware = true;
 
   static const List<Color> _palette = <Color>[
-    Color(0xFF3D5AFE), Color(0xFF00BFA5), Color(0xFFFF6E40),
-    Color(0xFFAB47BC), Color(0xFFFFCA28), Color(0xFF26C6DA),
+    Color(0xFF3D5AFE),
+    Color(0xFF00BFA5),
+    Color(0xFFFF6E40),
+    Color(0xFFAB47BC),
+    Color(0xFFFFCA28),
+    Color(0xFF26C6DA),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final tiles = List<Widget>.generate(24, (i) => _Tile(index: i, palette: _palette));
+    final tiles = List<Widget>.generate(
+      24,
+      (i) => _Tile(index: i, palette: _palette),
+    );
 
     return Column(
       children: <Widget>[

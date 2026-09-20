@@ -81,9 +81,9 @@ abstract final class BifoldCaptureAccessory {
     try {
       final bool? registered = await _methods
           .invokeMethod<bool>('registerCaptureAccessory', <String, Object?>{
-            'entrypoint': entrypoint,
-            'libraryUri': libraryUri,
-          });
+        'entrypoint': entrypoint,
+        'libraryUri': libraryUri,
+      });
       return registered ?? false;
     } on MissingPluginException {
       return false;

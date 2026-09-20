@@ -192,9 +192,8 @@ abstract final class Bifold {
   /// The current fold state, or null when there is no [BifoldScope] ancestor.
   ///
   /// Rebuilds the caller when the state changes.
-  static FoldInfo? maybeOf(BuildContext context) => context
-      .dependOnInheritedWidgetOfExactType<_BifoldModel>()
-      ?.info;
+  static FoldInfo? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_BifoldModel>()?.info;
 
   /// Reads the fold state once, without a [BifoldScope].
   ///

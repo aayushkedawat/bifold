@@ -34,14 +34,14 @@ void main() {
       final builds = <FoldPose>[];
 
       Widget build(FoldInfo info) => BifoldScope.fake(
-        info: info,
-        child: Builder(
-          builder: (context) {
-            builds.add(Bifold.of(context).pose);
-            return const SizedBox();
-          },
-        ),
-      );
+            info: info,
+            child: Builder(
+              builder: (context) {
+                builds.add(Bifold.of(context).pose);
+                return const SizedBox();
+              },
+            ),
+          );
 
       await tester.pumpWidget(build(FoldInfoFakes.closed));
       await tester.pumpWidget(
@@ -59,9 +59,9 @@ void main() {
       _DependencyCounter.notifications = 0;
 
       Widget build(FoldInfo info) => BifoldScope.fake(
-        info: info,
-        child: const _DependencyCounter(),
-      );
+            info: info,
+            child: const _DependencyCounter(),
+          );
 
       await tester.pumpWidget(build(FoldInfoFakes.closed));
       expect(_DependencyCounter.notifications, 1);
@@ -275,9 +275,9 @@ class _DependencyCounterState extends State<_DependencyCounter> {
 class _FakePlatform extends BifoldPlatform {
   late final StreamController<FoldInfo> _controller =
       StreamController<FoldInfo>.broadcast(
-        onListen: () => listenerCount++,
-        onCancel: () => listenerCount--,
-      );
+    onListen: () => listenerCount++,
+    onCancel: () => listenerCount--,
+  );
 
   int listenerCount = 0;
   int getFoldInfoCalls = 0;

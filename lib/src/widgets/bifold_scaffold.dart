@@ -158,6 +158,7 @@ class BifoldScaffold extends StatelessWidget {
   ///
   /// A caller that shortens [destinations] without resetting [selectedIndex]
   /// would otherwise throw from inside the navigation widget.
-  int get _clampedIndex =>
-      destinations.isEmpty ? 0 : selectedIndex.clamp(0, destinations.length - 1);
+  int get _clampedIndex => destinations.isEmpty
+      ? 0
+      : selectedIndex.clamp(0, destinations.length - 1);
 }

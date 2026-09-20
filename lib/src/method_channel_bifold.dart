@@ -38,8 +38,8 @@ class MethodChannelBifold extends BifoldPlatform {
   @override
   Future<FoldInfo> getFoldInfo() async {
     try {
-      final Map<Object?, Object?>? payload = await methodChannel
-          .invokeMapMethod<Object?, Object?>('getFoldInfo');
+      final Map<Object?, Object?>? payload =
+          await methodChannel.invokeMapMethod<Object?, Object?>('getFoldInfo');
       if (payload == null) {
         return FoldInfo.unsupported;
       }

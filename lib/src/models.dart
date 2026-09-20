@@ -36,10 +36,10 @@ enum FoldDisplay {
   /// Returns [FoldDisplay.none] for anything unrecognised, so that a newer
   /// native build cannot crash an older Dart one.
   static FoldDisplay fromName(String? name) => switch (name) {
-    'outer' => FoldDisplay.outer,
-    'inner' => FoldDisplay.inner,
-    _ => FoldDisplay.none,
-  };
+        'outer' => FoldDisplay.outer,
+        'inner' => FoldDisplay.inner,
+        _ => FoldDisplay.none,
+      };
 }
 
 /// How far the device is folded.
@@ -69,11 +69,11 @@ enum FoldPose {
   ///
   /// Returns [FoldPose.unknown] for anything unrecognised.
   static FoldPose fromName(String? name) => switch (name) {
-    'closed' => FoldPose.closed,
-    'partiallyOpen' => FoldPose.partiallyOpen,
-    'fullyOpen' => FoldPose.fullyOpen,
-    _ => FoldPose.unknown,
-  };
+        'closed' => FoldPose.closed,
+        'partiallyOpen' => FoldPose.partiallyOpen,
+        'fullyOpen' => FoldPose.fullyOpen,
+        _ => FoldPose.unknown,
+      };
 }
 
 /// A UIKit size class, as reported for the Flutter view.
@@ -94,10 +94,10 @@ enum FoldSizeClass {
 
   /// Decodes a [FoldSizeClass] from its platform channel spelling.
   static FoldSizeClass fromName(String? name) => switch (name) {
-    'compact' => FoldSizeClass.compact,
-    'regular' => FoldSizeClass.regular,
-    _ => FoldSizeClass.unspecified,
-  };
+        'compact' => FoldSizeClass.compact,
+        'regular' => FoldSizeClass.regular,
+        _ => FoldSizeClass.unspecified,
+      };
 }
 
 /// Which edge the system places its vertical bar on.
@@ -117,10 +117,10 @@ enum VerticalBarEdge {
 
   /// Decodes a [VerticalBarEdge] from its platform channel spelling.
   static VerticalBarEdge fromName(String? name) => switch (name) {
-    'leading' => VerticalBarEdge.leading,
-    'trailing' => VerticalBarEdge.trailing,
-    _ => VerticalBarEdge.unspecified,
-  };
+        'leading' => VerticalBarEdge.leading,
+        'trailing' => VerticalBarEdge.trailing,
+        _ => VerticalBarEdge.unspecified,
+      };
 }
 
 /// What a [FoldRegion] represents.
@@ -146,10 +146,10 @@ enum RegionKind {
 
   /// Decodes a [RegionKind] from its platform channel spelling.
   static RegionKind fromName(String? name) => switch (name) {
-    'division' => RegionKind.division,
-    'occlusion' => RegionKind.occlusion,
-    _ => RegionKind.unknown,
-  };
+        'division' => RegionKind.division,
+        'occlusion' => RegionKind.occlusion,
+        _ => RegionKind.unknown,
+      };
 }
 
 /// An area of the display claimed by hardware.
@@ -277,8 +277,7 @@ class FoldRegion {
   int get hashCode => Object.hash(kind, frame, margins, isActive);
 
   @override
-  String toString() =>
-      'FoldRegion(${kind.name}, $frame, margins: $margins, '
+  String toString() => 'FoldRegion(${kind.name}, $frame, margins: $margins, '
       'isActive: $isActive)';
 }
 
@@ -444,16 +443,17 @@ class FoldInfo {
     FoldSizeClass? verticalSizeClass,
     VerticalBarEdge? verticalBarEdge,
     bool clearHingeAngle = false,
-  }) => FoldInfo(
-    isFoldable: isFoldable ?? this.isFoldable,
-    display: display ?? this.display,
-    pose: pose ?? this.pose,
-    regions: regions ?? this.regions,
-    hingeAngle: clearHingeAngle ? null : (hingeAngle ?? this.hingeAngle),
-    horizontalSizeClass: horizontalSizeClass ?? this.horizontalSizeClass,
-    verticalSizeClass: verticalSizeClass ?? this.verticalSizeClass,
-    verticalBarEdge: verticalBarEdge ?? this.verticalBarEdge,
-  );
+  }) =>
+      FoldInfo(
+        isFoldable: isFoldable ?? this.isFoldable,
+        display: display ?? this.display,
+        pose: pose ?? this.pose,
+        regions: regions ?? this.regions,
+        hingeAngle: clearHingeAngle ? null : (hingeAngle ?? this.hingeAngle),
+        horizontalSizeClass: horizontalSizeClass ?? this.horizontalSizeClass,
+        verticalSizeClass: verticalSizeClass ?? this.verticalSizeClass,
+        verticalBarEdge: verticalBarEdge ?? this.verticalBarEdge,
+      );
 
   @override
   bool operator ==(Object other) =>
@@ -470,15 +470,15 @@ class FoldInfo {
 
   @override
   int get hashCode => Object.hash(
-    isFoldable,
-    display,
-    pose,
-    hingeAngle,
-    horizontalSizeClass,
-    verticalSizeClass,
-    verticalBarEdge,
-    Object.hashAll(regions),
-  );
+        isFoldable,
+        display,
+        pose,
+        hingeAngle,
+        horizontalSizeClass,
+        verticalSizeClass,
+        verticalBarEdge,
+        Object.hashAll(regions),
+      );
 
   @override
   String toString() =>

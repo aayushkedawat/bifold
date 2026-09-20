@@ -36,11 +36,17 @@ void main() {
         return <Object?, Object?>{
           'axis': 'vertical',
           'primary': <Object?, Object?>{
-            'left': 0.0, 'top': 0.0, 'right': 800.0, 'bottom': 500.0,
+            'left': 0.0,
+            'top': 0.0,
+            'right': 800.0,
+            'bottom': 500.0,
             'visible': true,
           },
           'secondary': <Object?, Object?>{
-            'left': 0.0, 'top': 500.0, 'right': 800.0, 'bottom': 1000.0,
+            'left': 0.0,
+            'top': 500.0,
+            'right': 800.0,
+            'bottom': 1000.0,
             'visible': true,
           },
         };
@@ -65,11 +71,17 @@ void main() {
         return <Object?, Object?>{
           'axis': 'horizontal',
           'primary': <Object?, Object?>{
-            'left': 0.0, 'top': 0.0, 'right': 871.0, 'bottom': 669.0,
+            'left': 0.0,
+            'top': 0.0,
+            'right': 871.0,
+            'bottom': 669.0,
             'visible': true,
           },
           'secondary': <Object?, Object?>{
-            'left': 0.0, 'top': 0.0, 'right': 0.0, 'bottom': 0.0,
+            'left': 0.0,
+            'top': 0.0,
+            'right': 0.0,
+            'bottom': 0.0,
             'visible': false,
           },
         };

@@ -78,7 +78,8 @@ class BifoldDisplayFeatures extends StatelessWidget {
   /// overwrite the real thing with a copy. This widget checks rather than
   /// assumes, so it keeps working correctly across that transition without a
   /// version check or a release of this package.
-  static bool isRedundant(MediaQueryData data) => data.displayFeatures.isNotEmpty;
+  static bool isRedundant(MediaQueryData data) =>
+      data.displayFeatures.isNotEmpty;
 
   /// Converts fold state into Flutter's display feature model.
   ///
@@ -121,9 +122,9 @@ class BifoldDisplayFeatures extends StatelessWidget {
   }
 
   static ui.DisplayFeatureState _postureFor(FoldPose pose) => switch (pose) {
-    FoldPose.partiallyOpen => ui.DisplayFeatureState.postureHalfOpened,
-    FoldPose.fullyOpen => ui.DisplayFeatureState.postureFlat,
-    // dart:ui has no closed posture, and unknown is the documented fallback.
-    FoldPose.closed || FoldPose.unknown => ui.DisplayFeatureState.unknown,
-  };
+        FoldPose.partiallyOpen => ui.DisplayFeatureState.postureHalfOpened,
+        FoldPose.fullyOpen => ui.DisplayFeatureState.postureFlat,
+        // dart:ui has no closed posture, and unknown is the documented fallback.
+        FoldPose.closed || FoldPose.unknown => ui.DisplayFeatureState.unknown,
+      };
 }
