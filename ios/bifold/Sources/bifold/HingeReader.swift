@@ -72,19 +72,43 @@ final class HingeReader {
     }
   }
 
-  /// Starts observing the hinge on `view`.
+  /// What to call when the hinge reports an update.
+  ///
+  /// Held separately from the interaction so that attaching again replaces the
+  /// callback rather than being ignored. The one-shot `getFoldInfo` path
+  /// attaches with no callback so that repeated reads see a pose; the stream
+  /// then attaches with a real one. If the second attach were a no-op, hinge
+  /// updates would be recorded internally but never pushed to Dart, and the
+  /// pose would sit at `unknown` forever.
+  private var onChange: (() -> Void)?
+
+  /// Starts observing the hinge on `view`, or re-points an existing
+  /// observation at a new callback.
   ///
   /// `onChange` fires on every hinge update, which is what makes fold state
   /// push-based rather than inferred from a resize.
   func attach(to view: UIView, onChange: @escaping () -> Void) {
-    guard HingeReader.isSupported, interaction == nil else { return }
+    guard HingeReader.isSupported else { return }
+
+    // Always adopt the newest callback, even when already attached.
+    self.onChange = onChange
+
+    guard interaction == nil else {
+      // Already observing. Replay what is known so a late listener is not left
+      // waiting for the next physical hinge movement.
+      if state != nil {
+        onChange()
+      }
+      return
+    }
     guard let cls = NSClassFromString("UIHingeInteraction") else { return }
 
     // The block's signature is (UIHingeInteraction *, UIHingeInteractionUpdate *).
     let handler: @convention(block) (AnyObject?, AnyObject?) -> Void = {
       [weak self] _, update in
-      self?.absorb(update: update)
-      onChange()
+      guard let self else { return }
+      self.absorb(update: update)
+      self.onChange?()
     }
 
     guard let created = HingeReader.makeInteraction(cls: cls, handler: handler)
@@ -109,6 +133,7 @@ final class HingeReader {
     interaction = nil
     view = nil
     state = nil
+    onChange = nil
   }
 
   /// Reads the hinge out of an update object.

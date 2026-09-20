@@ -1,28 +1,17 @@
 import 'package:bifold/bifold.dart';
 import 'package:flutter/material.dart';
 
+import 'pages/gallery_page.dart';
+import 'pages/inspector_page.dart';
+import 'pages/reader_page.dart';
+import 'pages/studio_page.dart';
+
 /// Content the system may show on the outer display during camera capture.
 ///
-/// Runs in its own Flutter engine, so it is a separate entrypoint. The pragma
-/// keeps it from being tree-shaken out of a release build.
+/// This runs in its own Flutter engine, so it is a separate entrypoint. The
+/// pragma keeps it from being tree-shaken out of a release build.
 @pragma('vm:entry-point')
-void captureAccessoryMain() {
-  runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: ColoredBox(
-        color: Color(0xFF101014),
-        child: Center(
-          child: Text(
-            'You are on camera',
-            textDirection: TextDirection.ltr,
-            style: TextStyle(color: Color(0xFFFFFFFF), fontSize: 20),
-          ),
-        ),
-      ),
-    ),
-  );
-}
+void captureAccessoryMain() => runApp(const SubjectView());
 
 void main() {
   // One scope at the root. Everything below it can read fold state.
@@ -37,41 +26,69 @@ class ExampleApp extends StatefulWidget {
 }
 
 class _ExampleAppState extends State<ExampleApp> {
-  bool _overlayEnabled = true;
+  bool _overlay = true;
+  bool _bridgeDisplayFeatures = true;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'bifold example',
+      title: 'bifold',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF3D5AFE),
         brightness: Brightness.dark,
+        useMaterial3: true,
       ),
-      // The overlay wraps the whole app so it draws over the Scaffold too,
-      // including the area behind the app bar where the camera cutout sits.
-      builder: (context, child) => BifoldDebugOverlay(
-        enabled: _overlayEnabled,
-        child: child!,
-      ),
-      home: ReaderPage(
-        overlayEnabled: _overlayEnabled,
-        onToggleOverlay: () =>
-            setState(() => _overlayEnabled = !_overlayEnabled),
+      builder: (context, child) {
+        // Republish the fold as MediaQuery.displayFeatures, so Flutter's own
+        // dialog positioning and any Android-foldable package see it too.
+        Widget content = child!;
+        if (_bridgeDisplayFeatures) {
+          content = BifoldDisplayFeatures(child: content);
+        }
+        // The overlay wraps everything so it draws over the Scaffold as well,
+        // including the area behind the app bar where a cutout sits.
+        return BifoldDebugOverlay(enabled: _overlay, child: content);
+      },
+      home: HomePage(
+        overlayEnabled: _overlay,
+        bridgeEnabled: _bridgeDisplayFeatures,
+        onToggleOverlay: () => setState(() => _overlay = !_overlay),
+        onToggleBridge: () =>
+            setState(() => _bridgeDisplayFeatures = !_bridgeDisplayFeatures),
       ),
     );
   }
 }
 
-/// A two-page reader that splits across the fold.
-class ReaderPage extends StatelessWidget {
-  const ReaderPage({
+/// Hosts the demos, with a live read-out of fold state above them.
+class HomePage extends StatefulWidget {
+  const HomePage({
     required this.overlayEnabled,
+    required this.bridgeEnabled,
     required this.onToggleOverlay,
+    required this.onToggleBridge,
     super.key,
   });
 
   final bool overlayEnabled;
+  final bool bridgeEnabled;
   final VoidCallback onToggleOverlay;
+  final VoidCallback onToggleBridge;
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  int _tab = 0;
+
+  static const List<_Demo> _demos = <_Demo>[
+    _Demo('Reader', Icons.menu_book_outlined, ReaderPage()),
+    _Demo('Gallery', Icons.grid_view_outlined, GalleryPage()),
+    _Demo('Studio', Icons.videocam_outlined, StudioPage()),
+    _Demo('Inspector', Icons.science_outlined, InspectorPage()),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -82,112 +99,148 @@ class ReaderPage extends StatelessWidget {
         title: const Text('bifold'),
         actions: <Widget>[
           IconButton(
-            tooltip: overlayEnabled ? 'Hide regions' : 'Show regions',
-            onPressed: onToggleOverlay,
+            tooltip: widget.bridgeEnabled
+                ? 'displayFeatures bridge on'
+                : 'displayFeatures bridge off',
+            onPressed: widget.onToggleBridge,
             icon: Icon(
-              overlayEnabled ? Icons.grid_off : Icons.grid_on,
+              widget.bridgeEnabled ? Icons.link : Icons.link_off,
+            ),
+          ),
+          IconButton(
+            tooltip: widget.overlayEnabled ? 'Hide regions' : 'Show regions',
+            onPressed: widget.onToggleOverlay,
+            icon: Icon(
+              widget.overlayEnabled ? Icons.grid_off : Icons.grid_on,
             ),
           ),
         ],
       ),
       body: Column(
         children: <Widget>[
-          _StatusBar(info: info),
+          StatusBar(info: info),
           Expanded(
-            child: BifoldSplit(
-              start: const _Page(
-                number: 1,
-                title: 'On folding',
-                body:
-                    'The panes above and below this line are placed clear of '
-                    'the crease and its margins. Fold the device part-way to '
-                    'see them separate.',
-              ),
-              end: const _Page(
-                number: 2,
-                title: 'On falling back',
-                body:
-                    'When there is no active division — flat, shut, or on a '
-                    'phone that does not fold — the two pages stack instead. '
-                    'Nothing throws and nothing is hidden.',
-              ),
-            ),
+            // Size classes, not orientation: the inner display reports regular
+            // in both axes and has room for a rail beside the content, while
+            // the outer display gets a conventional bottom bar. This is
+            // Apple's layout guidance for the device, in two lines.
+            child: info.isRegular
+                ? Row(
+                    children: <Widget>[
+                      NavigationRail(
+                        selectedIndex: _tab,
+                        onDestinationSelected: (i) => setState(() => _tab = i),
+                        labelType: NavigationRailLabelType.all,
+                        destinations: <NavigationRailDestination>[
+                          for (final demo in _demos)
+                            NavigationRailDestination(
+                              icon: Icon(demo.icon),
+                              label: Text(demo.label),
+                            ),
+                        ],
+                      ),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: _demos[_tab].page),
+                    ],
+                  )
+                : _demos[_tab].page,
           ),
         ],
       ),
+      bottomNavigationBar: info.isRegular
+          ? null
+          : NavigationBar(
+              selectedIndex: _tab,
+              onDestinationSelected: (i) => setState(() => _tab = i),
+              destinations: <Widget>[
+                for (final demo in _demos)
+                  NavigationDestination(
+                    icon: Icon(demo.icon),
+                    label: demo.label,
+                  ),
+              ],
+            ),
     );
   }
 }
 
-/// Live read-out of what the platform is reporting.
-class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.info});
+class _Demo {
+  const _Demo(this.label, this.icon, this.page);
+  final String label;
+  final IconData icon;
+  final Widget page;
+}
+
+/// Live read-out of everything `FoldInfo` exposes.
+class StatusBar extends StatelessWidget {
+  const StatusBar({required this.info, super.key});
 
   final FoldInfo info;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final division = info.division;
+    final degrees = info.hingeAngleDegrees;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       color: theme.colorScheme.surfaceContainerHighest,
-      child: DefaultTextStyle(
-        style: theme.textTheme.bodySmall!,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: <Widget>[
-                _Chip(
-                  label: info.isFoldable ? 'foldable' : 'not foldable',
-                  highlight: info.isFoldable,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: <Widget>[
+              Chip2(
+                label: info.isFoldable ? 'foldable' : 'not foldable',
+                highlight: info.isFoldable,
+              ),
+              Chip2(label: 'display: ${info.display.name}'),
+              Chip2(label: 'pose: ${info.pose.name}'),
+              if (degrees != null)
+                Chip2(
+                  label: '${degrees.toStringAsFixed(0)}°',
+                  highlight: true,
                 ),
-                _Chip(label: 'display: ${info.display.name}'),
-                _Chip(label: 'pose: ${info.pose.name}'),
-                if (info.hingeAngleDegrees case final degrees?)
-                  _Chip(label: '${degrees.toStringAsFixed(0)}\u00b0'),
-                _Chip(
-                  label: '${info.regions.length} region'
-                      '${info.regions.length == 1 ? '' : 's'}',
-                ),
-                _Chip(
-                  label: 'size: ${info.horizontalSizeClass.name}/'
-                      '${info.verticalSizeClass.name}',
-                ),
-                if (info.verticalBarEdge != VerticalBarEdge.unspecified)
-                  _Chip(label: 'bar: ${info.verticalBarEdge.name}'),
-                _Chip(
-                  label: division == null
-                      ? 'no active division'
-                      : 'division active',
-                  highlight: division != null,
-                ),
-              ],
-            ),
-            if (!info.isFoldable) ...<Widget>[
-              const SizedBox(height: 6),
-              Text(
-                'This device reports no fold. Everything below still lays out '
-                'and nothing throws.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+              Chip2(
+                label: 'size: ${info.horizontalSizeClass.name}/'
+                    '${info.verticalSizeClass.name}',
+              ),
+              if (info.verticalBarEdge != VerticalBarEdge.unspecified)
+                Chip2(label: 'bar: ${info.verticalBarEdge.name}'),
+              Chip2(
+                label: '${info.regions.length} region'
+                    '${info.regions.length == 1 ? '' : 's'}',
+              ),
+              Chip2(
+                label: info.division == null
+                    ? 'no active division'
+                    : 'division active',
+                highlight: info.division != null,
               ),
             ],
+          ),
+          if (!info.isFoldable) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              'This device reports no fold. Every demo below still lays out '
+              'and nothing throws.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({required this.label, this.highlight = false});
+/// A compact pill, small enough that a dozen fit on the outer display.
+class Chip2 extends StatelessWidget {
+  const Chip2({required this.label, this.highlight = false, super.key});
 
   final String label;
   final bool highlight;
@@ -212,42 +265,46 @@ class _Chip extends StatelessWidget {
   }
 }
 
-class _Page extends StatelessWidget {
-  const _Page({
-    required this.number,
-    required this.title,
-    required this.body,
-  });
-
-  final int number;
-  final String title;
-  final String body;
+/// What the person in front of the camera sees on the outer display.
+///
+/// A separate engine renders this, so it shares no state with the main app —
+/// which is why it is a plain, self-contained widget.
+class SubjectView extends StatelessWidget {
+  const SubjectView({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      color: theme.colorScheme.surface,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Page $number',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              letterSpacing: 1.2,
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: ColoredBox(
+        color: Color(0xFF0B0B0F),
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(Icons.fiber_manual_record, color: Color(0xFFFF5252), size: 40),
+                SizedBox(height: 12),
+                Text(
+                  'You are on camera',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFFFFFFFF),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Look here',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(title, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 10),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Text(body, style: theme.textTheme.bodyMedium),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
