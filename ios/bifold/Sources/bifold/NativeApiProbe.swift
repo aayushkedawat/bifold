@@ -60,6 +60,7 @@ enum NativeApiProbe {
     }
 
     out.append(describeLiveRegions(view: view))
+    out.append(describeVerticalBar(view: view))
     out.append(describeKindType())
     out.append(describeConstants())
     out.append(describeHinge())
@@ -196,6 +197,31 @@ enum NativeApiProbe {
       }
     }
     return parts.joined(separator: " ")
+  }
+
+  /// Reports how the vertical bar edge reads from several trait sources.
+  private static func describeVerticalBar(view: UIView?) -> String {
+    var out: [String] = ["== vertical bar edge =="]
+    let selector = NSSelectorFromString("verticalBarEdge")
+    out.append("  UITraitCollection responds: \(UITraitCollection.instancesRespond(to: selector))")
+
+    func read(_ label: String, _ traits: UITraitCollection?) {
+      guard let traits else {
+        out.append("  \(label): (no traits)")
+        return
+      }
+      let responds = traits.responds(to: selector)
+      let kvc = responds ? traits.value(forKey: "verticalBarEdge") : nil
+      out.append("  \(label): responds=\(responds) value=\(String(describing: kvc)) type=\(kvc.map { String(describing: type(of: $0)) } ?? "-")")
+    }
+
+    read("view.traitCollection", view?.traitCollection)
+    read("window.traitCollection", view?.window?.traitCollection)
+    read("scene.traitCollection", view?.window?.windowScene?.traitCollection)
+    read("UIScreen.traitCollection", view?.window?.windowScene?.screen.traitCollection)
+    read("current", UITraitCollection.current)
+    out.append("")
+    return out.joined(separator: "\n")
   }
 
   // MARK: - Constants

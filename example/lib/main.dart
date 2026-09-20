@@ -92,9 +92,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final info = Bifold.of(context);
-
-    return Scaffold(
+    return BifoldScaffold(
       appBar: AppBar(
         title: const Text('bifold'),
         actions: <Widget>[
@@ -116,52 +114,28 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+      selectedIndex: _tab,
+      onDestinationSelected: (i) => setState(() => _tab = i),
+      destinations: <BifoldDestination>[
+        for (final demo in _demos)
+          BifoldDestination(icon: Icon(demo.icon), label: demo.label),
+      ],
       body: Column(
         children: <Widget>[
-          StatusBar(info: info),
-          Expanded(
-            // Size classes, not orientation: the inner display reports regular
-            // in both axes and has room for a rail beside the content, while
-            // the outer display gets a conventional bottom bar. This is
-            // Apple's layout guidance for the device, in two lines.
-            child: info.isRegular
-                ? Row(
-                    children: <Widget>[
-                      NavigationRail(
-                        selectedIndex: _tab,
-                        onDestinationSelected: (i) => setState(() => _tab = i),
-                        labelType: NavigationRailLabelType.all,
-                        destinations: <NavigationRailDestination>[
-                          for (final demo in _demos)
-                            NavigationRailDestination(
-                              icon: Icon(demo.icon),
-                              label: Text(demo.label),
-                            ),
-                        ],
-                      ),
-                      const VerticalDivider(width: 1),
-                      Expanded(child: _demos[_tab].page),
-                    ],
-                  )
-                : _demos[_tab].page,
-          ),
+          const _LiveStatusBar(),
+          Expanded(child: _demos[_tab].page),
         ],
       ),
-      bottomNavigationBar: info.isRegular
-          ? null
-          : NavigationBar(
-              selectedIndex: _tab,
-              onDestinationSelected: (i) => setState(() => _tab = i),
-              destinations: <Widget>[
-                for (final demo in _demos)
-                  NavigationDestination(
-                    icon: Icon(demo.icon),
-                    label: demo.label,
-                  ),
-              ],
-            ),
     );
   }
+}
+
+/// Reads fold state itself, so the scaffold above it does not have to.
+class _LiveStatusBar extends StatelessWidget {
+  const _LiveStatusBar();
+
+  @override
+  Widget build(BuildContext context) => StatusBar(info: Bifold.of(context));
 }
 
 class _Demo {

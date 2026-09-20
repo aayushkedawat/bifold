@@ -119,7 +119,8 @@ void main() {
         await tester.pump();
       }
 
-      // Inner display: regular in both axes.
+      // Inner display: regular in both axes. BifoldScaffold puts the
+      // navigation in a rail there.
       await pumpHome(
         FoldInfoFakes.partiallyOpen(viewSize: kViewSize).copyWith(
           horizontalSizeClass: FoldSizeClass.regular,
