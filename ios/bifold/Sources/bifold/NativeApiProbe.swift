@@ -39,12 +39,18 @@ enum NativeApiProbe {
 
     for name in [
       "UIViewReservedRegion", "UIHingeInteraction", "UIArrangementViewController",
+      "UIArrangement", "UISplitArrangement", "UIOverlayArrangement",
+      "UIArrangementViewState",
     ] {
       out.append("== class \(name) ==")
       guard let cls = NSClassFromString(name) else {
         out.append("  (not present)")
         out.append("")
         continue
+      }
+      out.append("  -- class methods --")
+      if let meta = object_getClass(cls) {
+        out.append(render(methods(of: meta, matching: "")))
       }
       out.append("  -- methods --")
       out.append(render(methods(of: cls, matching: "")))

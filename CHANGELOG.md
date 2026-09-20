@@ -25,6 +25,12 @@ Fold awareness for the foldable iPhone.
   `MediaQuery.displayFeatures` for packages built against Android foldables.
   It steps aside automatically once the engine populates that field natively.
 
+**Platform geometry**
+
+* `BifoldArrangement.measure`, which reports where the platform's own split
+  arrangement would place two panes, measured from a real arrangement rather
+  than modelled.
+
 **Camera**
 
 * `BifoldCaptureAccessory`, which presents app content on the outer display

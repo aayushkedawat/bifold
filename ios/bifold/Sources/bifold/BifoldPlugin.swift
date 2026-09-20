@@ -29,6 +29,20 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   private var eventSink: FlutterEventSink?
   private var observation: FoldObservation?
 
+  /// Measures what UIKit's own split arrangement would produce.
+  ///
+  /// Created lazily on first use and released on request, because it adds a
+  /// child view controller to the host and should not exist for apps that
+  /// never ask for it. Typed as `Any?` so the property does not force an
+  /// availability annotation onto the whole class.
+  private var _oracle: Any?
+
+  @available(iOS 27.1, *)
+  private var oracle: ArrangementOracle? {
+    get { _oracle as? ArrangementOracle }
+    set { _oracle = newValue }
+  }
+
   /// Sink for capture-accessory availability, when Dart is listening.
   private var accessorySink: FlutterEventSink?
 
@@ -108,6 +122,34 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
       result(FoldReader.isSupported)
     case "debugDescribeNativeApi":
       result(NativeApiProbe.describe(view: flutterView()))
+
+    case "measureArrangement":
+      guard #available(iOS 27.1, *) else {
+        result(nil)
+        return
+      }
+      guard let host = registrar?.viewController else {
+        result(nil)
+        return
+      }
+      let args = call.arguments as? [String: Any] ?? [:]
+      let width = (args["width"] as? NSNumber)?.doubleValue ?? 0
+      let height = (args["height"] as? NSNumber)?.doubleValue ?? 0
+      let axis: ArrangementOracle.Axis =
+        (args["axis"] as? String) == "vertical" ? .vertical : .horizontal
+      if oracle == nil {
+        oracle = ArrangementOracle(host: host)
+      }
+      result(
+        oracle?.measure(size: CGSize(width: width, height: height), axis: axis)
+      )
+
+    case "releaseArrangement":
+      if #available(iOS 27.1, *) {
+        oracle?.detach()
+        oracle = nil
+      }
+      result(nil)
 
     case "captureAccessorySupported":
       if #available(iOS 27.1, *) {

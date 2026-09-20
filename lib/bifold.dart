@@ -22,6 +22,12 @@
 /// [FoldInfo.unsupported] and never throws.
 library;
 
+export 'src/arrangement.dart'
+    show
+        ArrangementAxis,
+        ArrangementMeasurement,
+        ArrangementPane,
+        BifoldArrangement;
 export 'src/bifold_platform_interface.dart' show BifoldPlatform;
 export 'src/capture_accessory.dart' show BifoldCaptureAccessory;
 export 'src/anchoring.dart' show bifoldAnchorPoint;

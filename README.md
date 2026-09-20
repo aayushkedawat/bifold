@@ -103,6 +103,27 @@ The accessory runs in its own Flutter engine, so your main UI on the inner
 display is untouched. The system decides whether and when it appears; watch
 `BifoldCaptureAccessory.availability` to follow along.
 
+### Match the system's own split exactly
+
+`BifoldSplit` positions panes from the reported fold. When a layout needs to
+match the platform's own split arrangement rather than approximate it, ask the
+platform directly:
+
+```dart
+final measured = await BifoldArrangement.measure(
+  size: const Size(871, 669),
+  axis: ArrangementAxis.vertical,
+);
+if (measured != null && measured.isSplit) {
+  // Mirror measured.primary.bounds and measured.secondary.bounds.
+}
+await BifoldArrangement.release();
+```
+
+The numbers come from a real arrangement the platform laid out, not from a
+model of one. Measuring attaches an empty, non-interactive view controller for
+the duration — call `release()` when finished.
+
 ### Bridge to `MediaQuery.displayFeatures`
 
 Flutter populates `displayFeatures` only on Android, so packages built for
