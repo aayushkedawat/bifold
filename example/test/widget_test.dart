@@ -8,6 +8,7 @@ import 'package:bifold_example/main.dart';
 import 'package:bifold_example/pages/gallery_page.dart';
 import 'package:bifold_example/pages/inspector_page.dart';
 import 'package:bifold_example/pages/reader_page.dart';
+import 'package:bifold_example/widgets/hinge_gauge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -143,6 +144,66 @@ void main() {
     });
   });
 
+  group('hinge gauge', () {
+    Future<void> pumpGauge(WidgetTester tester, FoldInfo info) async {
+      tester.view
+        ..physicalSize = kViewSize
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: HingeGauge(info: info)),
+        ),
+      );
+      // The angle is tweened, so settle before reading it.
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows the angle in degrees and the pose', (tester) async {
+      await pumpGauge(tester, FoldInfoFakes.partiallyOpen(viewSize: kViewSize));
+
+      expect(find.text('90'), findsOneWidget);
+      expect(find.text('partiallyOpen'), findsOneWidget);
+      expect(find.textContaining('live from the platform'), findsOneWidget);
+    });
+
+    testWidgets('reads 180 when flat and 0 when shut', (tester) async {
+      await pumpGauge(tester, FoldInfoFakes.fullyOpen(viewSize: kViewSize));
+      expect(find.text('180'), findsOneWidget);
+
+      await pumpGauge(tester, FoldInfoFakes.closed);
+      expect(find.text('0'), findsOneWidget);
+    });
+
+    testWidgets('says so plainly when there is no hinge', (tester) async {
+      await pumpGauge(tester, FoldInfo.unsupported);
+
+      expect(find.text('--'), findsOneWidget);
+      expect(find.textContaining('no hinge on this device'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('paints without throwing across the whole sweep', (
+      tester,
+    ) async {
+      for (final degrees in <double>[0, 1, 45, 90, 127.8, 179, 180]) {
+        await pumpGauge(
+          tester,
+          FoldInfoFakes.partiallyOpen(
+            viewSize: kViewSize,
+            hingeAngle: degrees * 3.1415926535 / 180,
+          ),
+        );
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'threw while painting $degrees degrees',
+        );
+      }
+    });
+  });
+
   group('status bar', () {
     testWidgets('reports the live state', (tester) async {
       await pump(
@@ -154,7 +215,6 @@ void main() {
       expect(find.text('foldable'), findsOneWidget);
       expect(find.text('division active'), findsOneWidget);
       expect(find.text('pose: partiallyOpen'), findsOneWidget);
-      expect(find.text('90°'), findsOneWidget);
     });
 
     testWidgets('says plainly when there is no fold', (tester) async {

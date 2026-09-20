@@ -5,6 +5,7 @@ import 'pages/gallery_page.dart';
 import 'pages/inspector_page.dart';
 import 'pages/reader_page.dart';
 import 'pages/studio_page.dart';
+import 'widgets/hinge_gauge.dart';
 
 /// Content the system may show on the outer display during camera capture.
 ///
@@ -118,6 +119,7 @@ class _HomePageState extends State<HomePage> {
       ],
       body: Column(
         children: <Widget>[
+          const _LiveHingeGauge(),
           const _LiveStatusBar(),
           Expanded(child: _demos[_tab].page),
         ],
@@ -132,6 +134,14 @@ class _LiveStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => StatusBar(info: Bifold.of(context));
+}
+
+/// The hinge read-out, kept above the tabs so it stays on screen throughout.
+class _LiveHingeGauge extends StatelessWidget {
+  const _LiveHingeGauge();
+
+  @override
+  Widget build(BuildContext context) => HingeGauge(info: Bifold.of(context));
 }
 
 class _Demo {
@@ -150,8 +160,6 @@ class StatusBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final degrees = info.hingeAngleDegrees;
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -169,8 +177,6 @@ class StatusBar extends StatelessWidget {
               ),
               Chip2(label: 'display: ${info.display.name}'),
               Chip2(label: 'pose: ${info.pose.name}'),
-              if (degrees != null)
-                Chip2(label: '${degrees.toStringAsFixed(0)}°', highlight: true),
               Chip2(
                 label:
                     'size: ${info.horizontalSizeClass.name}/'

@@ -38,36 +38,35 @@ Widget maybe(BuildContext context) =>
 
 // --- Layout --------------------------------------------------------------
 Widget split() => BifoldSplit(
-  fallback: BifoldSplitFallback.sideBySide,
-  spacing: 16,
-  start: const Text('start'),
-  end: const Text('end'),
-);
+      fallback: BifoldSplitFallback.sideBySide,
+      spacing: 16,
+      start: const Text('start'),
+      end: const Text('end'),
+    );
 
 Widget grid() => BifoldGrid(
-  tileExtent: 160,
-  spacing: 8,
-  padding: const EdgeInsets.all(12),
-  children: const <Widget>[Text('tile')],
-);
+      tileExtent: 160,
+      spacing: 8,
+      padding: const EdgeInsets.all(12),
+      children: const <Widget>[Text('tile')],
+    );
 
 Widget scaffold(int index, void Function(int) onSelect) => BifoldScaffold(
-  appBar: AppBar(title: const Text('Inbox')),
-  selectedIndex: index,
-  onDestinationSelected: onSelect,
-  destinations: const <BifoldDestination>[
-    BifoldDestination(icon: Icon(Icons.inbox), label: 'Inbox'),
-    BifoldDestination(icon: Icon(Icons.send), label: 'Sent'),
-  ],
-  body: const Text('body'),
-);
+      appBar: AppBar(title: const Text('Inbox')),
+      selectedIndex: index,
+      onDestinationSelected: onSelect,
+      destinations: const <BifoldDestination>[
+        BifoldDestination(icon: Icon(Icons.inbox), label: 'Inbox'),
+        BifoldDestination(icon: Icon(Icons.send), label: 'Sent'),
+      ],
+      body: const Text('body'),
+    );
 
 void dialog(BuildContext context) {
   showDialog<void>(
     context: context,
     anchorPoint: bifoldAnchorPoint(context),
-    builder: (BuildContext context) =>
-        const AlertDialog(title: Text('Saved')),
+    builder: (BuildContext context) => const AlertDialog(title: Text('Saved')),
   );
 }
 
