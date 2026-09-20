@@ -27,8 +27,44 @@ with it visible.
 
 | # | check | result |
 |---|---|---|
-| 1 | shut: `display: outer`, `pose: closed`, 0 regions | ✅ 2026-09-20 — verified by `integration_test/duo_fold_test.dart` |
-| 2–13 | everything below | ⬜️ not yet run — needs DeviceHub fold controls |
+| 1 | shut: `display: outer`, `pose: closed`, 0 regions | ✅ 2026-09-20 |
+| 2 | shut: outer display reports `compact/regular` | ✅ 2026-09-20 |
+| 3 | open: `display: inner`, `pose: partiallyOpen`, live angle | ✅ 2026-09-20 — 127.8° |
+| 4 | open: inner display reports `regular/regular` | ✅ 2026-09-20 |
+| 5 | `BifoldScaffold` bar when compact, rail when regular | ✅ 2026-09-20 — both seen on device |
+| 6 | capture accessory registers | ✅ 2026-09-20 |
+| 7 | split arrangement is fold-aware | ✅ 2026-09-20 — see below |
+| — | **reserved regions** | ⚠️ **never observed** — see below |
+
+### Reserved regions are not emitted by the simulator
+
+Checked shut and open, at 0° and at 127.8°, for both kinds, with and without
+`IncludeInactive`, and across the whole view hierarchy — the Flutter view, each
+ancestor, the window, and the root view controller's view. Every query returns
+an empty array rather than an error, using a kind object obtained from
+`+[UIViewReservedRegionKind divisionRegionKind]`.
+
+The call path is therefore exercised and correct, but **no code that parses an
+actual region has ever run**. `BifoldSplit`, `BifoldGrid`, `bifoldAnchorPoint`
+and the overlay's region drawing are covered only by `FoldInfoFakes`. Treat
+them as unproven against real geometry until hardware exists.
+
+### The split arrangement *is* fold-aware
+
+Unlike reserved regions, `BifoldArrangement.measure` responds to the fold.
+Measured at the inner display's real size, 871×669:
+
+| state | axis | result |
+|---|---|---|
+| open, 127.8° | horizontal | **split** — primary 0–435.67, secondary 435.67–871 |
+| open, 127.8° | vertical | collapsed, secondary not visible |
+| shut | horizontal | collapsed, secondary not visible |
+| shut | vertical | split 50/50 |
+
+The open horizontal split lands exactly on the midpoint of the real display and
+appears only while open, so this is genuine system geometry rather than a
+generic halving. It is currently the only route to real, fold-derived layout
+numbers on the simulator.
 
 ---
 
