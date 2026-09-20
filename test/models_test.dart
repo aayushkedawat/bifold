@@ -99,14 +99,29 @@ void main() {
       expect(region.isActive, isFalse);
     });
 
-    test('avoidanceArea inflates the frame by the margins', () {
+    test('reservedRect strips the margins already inside the frame', () {
+      // The platform reports `frame` with its clearance included, so the
+      // hardware itself is the frame *deflated* by the margins. Inflating
+      // instead would double-count the clearance.
       const region = FoldRegion(
         kind: RegionKind.division,
-        frame: Rect.fromLTRB(0, 100, 400, 120),
+        frame: Rect.fromLTRB(0, 90, 400, 130),
         margins: EdgeInsets.symmetric(vertical: 10),
         isActive: true,
       );
-      expect(region.avoidanceArea, const Rect.fromLTRB(0, 90, 400, 130));
+      expect(region.reservedRect, const Rect.fromLTRB(0, 100, 400, 120));
+      // The frame is the avoid area as-is, not something to expand.
+      expect(region.frame, const Rect.fromLTRB(0, 90, 400, 130));
+    });
+
+    test('reservedRect equals the frame when there are no margins', () {
+      const region = FoldRegion(
+        kind: RegionKind.occlusion,
+        frame: Rect.fromLTWH(380, 0, 40, 40),
+        margins: EdgeInsets.zero,
+        isActive: true,
+      );
+      expect(region.reservedRect, region.frame);
     });
 
     test('value equality', () {

@@ -24,10 +24,13 @@ import 'models.dart';
 /// hardware and must not be used as a reference for real device dimensions.
 /// They exist to exercise layout logic, not to model a specific device.
 abstract final class FoldInfoFakes {
-  /// Clearance the fakes report around a division, in logical pixels.
+  /// Clearance the fakes report inside a division's frame, in logical pixels.
   ///
-  /// An arbitrary but non-zero value, chosen so that tests which ignore
-  /// margins visibly differ from tests which honour them.
+  /// An arbitrary but non-zero value, chosen so that tests which confuse the
+  /// frame with the hardware rect visibly differ from tests which do not.
+  ///
+  /// Like the platform, the fakes report a `frame` that *already contains*
+  /// this clearance; [FoldRegion.reservedRect] is the bare crease inside it.
   static const double divisionMargin = 12.0;
 
   /// A non-foldable device.
@@ -70,9 +73,10 @@ abstract final class FoldInfoFakes {
   /// This is the only pose that reports an active division, and the one a
   /// two-pane layout should react to.
   ///
-  /// [thickness] is the height of the crease in logical pixels. Pass zero to
-  /// model a crease with no measurable width, which the platform can report:
-  /// the region still marks where the display bends.
+  /// [thickness] is the height of the bare crease in logical pixels, not
+  /// counting [divisionMargin] either side. Pass zero to model a crease with no
+  /// measurable width, which the platform can report: the region still marks
+  /// where the display bends.
   static FoldInfo partiallyOpen({
     required Size viewSize,
     double thickness = 24.0,
@@ -96,7 +100,9 @@ abstract final class FoldInfoFakes {
     double thickness = 24.0,
   }) {
     final double centre = viewSize.width / 2;
-    final double half = thickness / 2;
+    // The frame spans the crease plus its clearance, matching how the platform
+    // reports it.
+    final double half = (thickness / 2) + divisionMargin;
     return FoldInfo(
       isFoldable: true,
       display: FoldDisplay.inner,
@@ -151,7 +157,9 @@ abstract final class FoldInfoFakes {
     double thickness = 24.0,
   }) {
     final double centre = viewSize.height / 2;
-    final double half = thickness / 2;
+    // The frame spans the crease plus its clearance, matching how the platform
+    // reports it.
+    final double half = (thickness / 2) + divisionMargin;
     return FoldRegion(
       kind: RegionKind.division,
       frame: Rect.fromLTRB(

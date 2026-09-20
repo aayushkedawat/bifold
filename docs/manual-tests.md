@@ -43,15 +43,17 @@ with it visible.
 - [ ] Close it again and confirm the state returns to shut with no regions
       left over.
 
-## 2. Coordinates — the highest-risk item
+## 2. Coordinates — confirm the headers in practice
 
-`API_NOTES.md` records the region `frame` coordinate space as **UNVERIFIED**.
-If frames arrive in window or screen space rather than the view's, every region
-is drawn at the wrong offset and every split lands in the wrong place.
+The coordinate space is now **verified from the 27.1 SDK headers**: regions are
+in the receiving view's own space, and `frame` already includes `margins`. This
+section is no longer a risk hunt, just confirmation that the implementation
+matches what the header promises.
 
-- [ ] With the device part-way open, the overlay's division band lies **exactly
-      over the physical crease**. If it is offset by roughly the status-bar
-      height, frames are in window space and `FoldReader` needs to convert.
+- [ ] With the device part-way open, the overlay's filled band (the crease) and
+      its outline (the crease plus clearance) both sit where the physical
+      hardware is. A constant offset of roughly the status-bar height would
+      mean the view-space assumption is being applied to the wrong view.
 - [ ] The two pages meet at the crease, not above or below it.
 - [ ] Repeat with the example wrapped in extra chrome (add padding above the
       `BifoldSplit`) — the split must still align to the real crease, which is

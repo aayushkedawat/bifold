@@ -17,8 +17,9 @@ import 'bifold_scope.dart';
 /// )
 /// ```
 ///
-/// Each region is drawn twice: a filled band for [FoldRegion.frame], and an
-/// outline for [FoldRegion.avoidanceArea] showing the frame plus its margins.
+/// Each region is drawn twice: an outline for [FoldRegion.frame], the whole
+/// area content should avoid, and a filled band for [FoldRegion.reservedRect],
+/// the hardware inside it. The gap between them is the platform's clearance.
 /// Active regions are drawn solid, inactive ones faint — the distinction that
 /// most often explains why a layout did not react the way it was expected to.
 ///
@@ -156,8 +157,10 @@ class _RegionPainter extends CustomPainter {
       RegionKind.unknown => unknownColor,
     };
 
-    final Rect frame = region.frame.shift(-viewOffset);
-    final Rect avoidance = region.avoidanceArea.shift(-viewOffset);
+    // `frame` is the whole avoid area (margins included); `reservedRect` is
+    // the hardware inside it.
+    final Rect avoidance = region.frame.shift(-viewOffset);
+    final Rect frame = region.reservedRect.shift(-viewOffset);
 
     // A crease can be reported with zero thickness. Draw it as a hairline so
     // it is visible at all, rather than painting an empty rect.

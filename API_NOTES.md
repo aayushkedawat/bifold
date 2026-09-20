@@ -5,21 +5,27 @@ the date verified. Required by ground rule 2 in `CLAUDE.md`.
 
 ## How these were verified
 
-**By Objective-C runtime introspection on a booted iPhone Duo simulator running
-iOS 27.1**, on 2026-09-20, via `class_copyMethodList` and
-`class_copyPropertyList`. The probe is checked in as
-`ios/bifold/Sources/bifold/NativeApiProbe.swift` and is reproducible:
+**Two independent passes, both on 2026-09-20, which agree on every symbol.**
 
-```sh
-cd example
-flutter test integration_test/native_api_probe_test.dart -d <duo-udid>
-```
+1. **Runtime introspection** on a booted iPhone Duo simulator running iOS 27.1,
+   via `class_copyMethodList` and `class_copyPropertyList`. Reproducible:
 
-This is **stronger evidence than a header read**, because it reports what the
-code will actually call on the OS it will actually run on. It was also the only
-route available: the iOS 27.1 *runtime* is installed here but the iOS 27.1
-*SDK* is not (Xcode is 27.0), and Apple's documentation pages are
-JavaScript-rendered and yield no declarations to fetching.
+   ```sh
+   cd example
+   flutter test integration_test/native_api_probe_test.dart -d <duo-udid>
+   ```
+
+2. **The iOS 27.1 SDK headers**, from Xcode 27.1 beta:
+
+   ```sh
+   DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+     bash scripts/verify-sdk.sh
+   ```
+
+The runtime pass came first and was what made the plugin work; the headers then
+confirmed it and added the two things introspection cannot show — documentation
+comments and enum *values*. One of those comments corrected a real bug: see
+[margins](#margins-are-inside-the-frame-not-added-to-it).
 
 Type encodings are quoted verbatim. Reading them: `@` object, `:` selector,
 `B` BOOL, `Q` NSUInteger, `q` NSInteger, `@?` block, `{…}` struct.
@@ -96,29 +102,61 @@ region; both must be unboxed with `.cgRectValue` / `.uiEdgeInsetsValue`.
 `UIViewReservedRegionIdentifier` is also a class, but exposes no class methods,
 so its values are not reachable the way kinds are. `bifold` does not use it.
 
-### Reserved-region `options` values
+### `UIViewReservedRegionQueryOptions`
 
 | field | value |
 |---|---|
-| status | 🔴 UNVERIFIED |
+| status | ✅ VERIFIED |
+| source | `UIViewReservedRegion.h`, iOS 27.1 SDK |
+| verified | 2026-09-20 |
 
-The parameter is an `NSUInteger` option set, but no constants are exported by
-name and the declaring SDK is not installed. `FoldReader` passes `1` as the
-"include inactive" flag and falls back to the one-argument selector, which
-returns the active regions correctly regardless. **Confirm against the 27.1 SDK
-headers before relying on inactive regions.**
+```objc
+typedef NS_OPTIONS(NSUInteger, UIViewReservedRegionQueryOptions) {
+    UIViewReservedRegionQueryOptionsNone = 0,
+    UIViewReservedRegionQueryOptionsIncludeInactive = 1 << 0
+};
+```
+
+Without `IncludeInactive` the query returns only active regions, and most
+regions are inactive until their hardware is in use.
 
 ### Coordinate space of a region's `frame`
 
 | field | value |
 |---|---|
-| status | 🔴 UNVERIFIED |
+| status | ✅ VERIFIED |
+| source | `UIViewReservedRegion.h`, iOS 27.1 SDK |
+| verified | 2026-09-20 |
 
-Assumed to be the receiving view's own coordinate space, in points. Not yet
-observed, because the Duo simulator reports no regions while shut and folding
-it requires the DeviceHub GUI. **This is the highest-risk open item**: if the
-frames are actually in window or screen space, every region lands at the wrong
-offset. See `docs/manual-tests.md`.
+> "A region within **a view's coordinate space** that has been reserved by
+> another entity."
+> `frame`: "The rect of the region **in the view's coordinate space**, including
+> the margins."
+
+Regions are relative to the receiving view, in points. A UIKit point and a
+Flutter logical pixel are the same unit, so nothing is scaled crossing the
+channel. This had been the highest-risk open item; it is now closed.
+
+### Margins are *inside* the frame, not added to it
+
+| field | value |
+|---|---|
+| status | ✅ VERIFIED — and it corrected a bug |
+| source | `UIViewReservedRegion.h`, iOS 27.1 SDK |
+
+> `frame`: "The rect of the region in the view's coordinate space, **including
+> the margins**."
+> `margins`: "The margins **included in the frame** around the reserved rect for
+> interactive content."
+
+The frame is already the whole area to avoid. An earlier draft exposed
+`avoidanceArea` as `margins.inflateRect(frame)`, which **double-counted the
+clearance** and would have pushed both panes of a `BifoldSplit` too far apart
+by the margin width on each side.
+
+The Dart API now mirrors the platform: `FoldRegion.frame` is the avoid area as
+reported, and `FoldRegion.reservedRect` is `margins.deflateRect(frame)` — the
+bare crease or cutout inside it. Nothing inflates the frame anywhere.
 
 ---
 
@@ -253,5 +291,7 @@ built here with the 27.0 SDK and reads fold state correctly on a 27.1 runtime.
 | regions lag hinge updates by 3–14 ms | `foldable` package | 🔴 not yet observed |
 | regions lag hinge status by "ms to seconds" | flutter/flutter#193025 | 🔴 not yet observed |
 
-Everything still marked 🔴 needs the Duo simulator **opened**, which requires
-DeviceHub's fold controls. `docs/manual-tests.md` has the checklist.
+These are *timing* claims, and timing cannot be read out of a header — it needs
+the Duo simulator **opened** and folded, which requires DeviceHub's fold
+controls. `docs/manual-tests.md` §3 has the checklist. None of them affect
+correctness of the geometry, which is now fully verified.

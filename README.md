@@ -123,30 +123,34 @@ until their CI upgraded.
 
 ### Verified
 
-* Every native symbol used, checked on 2026-09-20 by Objective-C runtime
-  introspection **on a booted iPhone Duo simulator running iOS 27.1**. Exact
-  type encodings are in [`API_NOTES.md`](API_NOTES.md), and the probe is
-  reproducible: `flutter test integration_test/native_api_probe_test.dart`.
-* Reading fold state end to end on that simulator, built against the iOS 27.0
-  SDK — which is the proof that the runtime-resolution approach works.
+* **Every native symbol used**, on 2026-09-20, by two independent passes that
+  agree: Objective-C runtime introspection on a booted iPhone Duo simulator
+  running iOS 27.1, and the iOS 27.1 SDK headers from Xcode 27.1 beta. Exact
+  type encodings and header quotes are in [`API_NOTES.md`](API_NOTES.md), and
+  both passes are reproducible.
+* **The region coordinate space.** Regions are in the receiving view's own
+  space — the header says so directly.
+* **That `frame` already includes `margins`.** This one corrected a bug: an
+  earlier draft inflated the frame by the margins, double-counting the
+  clearance. See [`API_NOTES.md`](API_NOTES.md).
+* Reading fold state end to end on that simulator, built against the **27.0**
+  SDK — the proof that the runtime-resolution approach genuinely works.
 * A shut device reports the outer display and no reserved regions.
 * Graceful degradation on non-foldable devices, by integration test.
-* The Dart layer: 68 unit and widget tests covering the model, the codec, the
+* The Dart layer: 69 unit and widget tests covering the model, the codec, the
   channel, and every pose.
 
 ### Not verified
 
 * **On physical hardware: nothing.** The device has not shipped.
-* **The region coordinate space.** Frames are assumed to be in the receiving
-  view's own space. Not yet observed with an *opened* device, because folding
-  the simulator needs DeviceHub's GUI controls and `simctl` has no fold
-  command. This is the highest-risk open item — if frames are in window space
-  instead, regions render at the wrong offset.
-* **Region timing.** That regions arrive after the first layout pass, and how
-  far they lag the hinge, are reported by others but not yet measured here.
-* **The `options` flag** that includes inactive regions. Its constants are not
-  exported by name; the package passes `1` and falls back to the selector that
-  returns active regions regardless.
+* **Region timing** — that regions arrive after the first layout pass, and how
+  far they lag the hinge. These are reported by others but not measured here,
+  because timing cannot be read out of a header: it needs the simulator folded,
+  and `simctl` has no fold command. It does not affect the geometry, which is
+  verified.
+* **The live open state.** Everything above was read from a *shut* Duo plus the
+  headers. Seeing real regions on an opened device is the last confirmation
+  step, in [`docs/manual-tests.md`](docs/manual-tests.md).
 
 [`docs/manual-tests.md`](docs/manual-tests.md) is the checklist for closing
 these, and marks which have been done.

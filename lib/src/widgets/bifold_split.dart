@@ -135,10 +135,12 @@ class _BifoldSplitState extends State<BifoldSplit> {
         _scheduleMeasure();
 
         // Translate the region from view coordinates into this widget's.
-        final Rect avoid = division.avoidanceArea.shift(-_viewOffset);
-        final Rect localFrame = division.frame.shift(-_viewOffset);
+        // `frame` is already the full area to avoid: the platform reports it
+        // with the margins included, so inflating it again would double-count
+        // the clearance and push both panes too far apart.
+        final Rect avoid = division.frame.shift(-_viewOffset);
 
-        final bool spansThisBox = _spans(localFrame, size, division.isHorizontal);
+        final bool spansThisBox = _spans(avoid, size, division.isHorizontal);
         if (!spansThisBox) {
           return _buildFallback(size);
         }

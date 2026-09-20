@@ -61,13 +61,14 @@ final class FoldReader {
     static let active = "active"
   }
 
-  /// UNVERIFIED: the `options` bit that includes inactive regions.
+  /// VERIFIED `UIViewReservedRegionQueryOptionsIncludeInactive = 1 << 0`
+  /// from `UIViewReservedRegion.h` in the iOS 27.1 SDK. The enclosing type is
+  /// `NS_OPTIONS(NSUInteger, UIViewReservedRegionQueryOptions)`, whose other
+  /// case is `...OptionsNone = 0`.
   ///
-  /// The parameter is an `NSUInteger` option set, but its constants are not
-  /// exported by name and the SDK that declares them is not installed. `1` is
-  /// the only plausible single flag; if it turns out to mean something else
-  /// the fallback below still returns the active regions correctly.
-  private static let includeInactiveOption: UInt = 1
+  /// Without this flag the query returns only active regions, and most regions
+  /// are inactive until their hardware is in use.
+  private static let includeInactiveOption: UInt = 1 << 0
 
   /// The `UIViewReservedRegionKind` object for the fold.
   private static let divisionKindObject: AnyObject? = kindObject(Symbol.divisionKind)
@@ -192,9 +193,16 @@ final class FoldReader {
 
   /// Reads every reserved region, active or not.
   ///
-  /// Regions come back in the receiving view's own coordinate space, in
+  /// VERIFIED coordinate space: `UIViewReservedRegion` is documented in the
+  /// 27.1 SDK as "a region within a view's coordinate space", and its `frame`
+  /// as "the rect of the region in the view's coordinate space, including the
+  /// margins". Regions are therefore relative to the receiving view, in
   /// points. A UIKit point and a Flutter logical pixel are the same unit, so
   /// no scaling is applied crossing the channel.
+  ///
+  /// Note "including the margins": the frame is the whole area to avoid, and
+  /// `margins` says how much of it is clearance rather than hardware. The Dart
+  /// side must not inflate the frame by the margins again.
   private func readRegions(from view: UIView) -> [[String: Any]] {
     var results: [[String: Any]] = []
 
@@ -220,6 +228,9 @@ final class FoldReader {
   /// `frame` and `margins` are structs, so KVC hands them back boxed in an
   /// `NSValue`. Casting the boxed value straight to `CGRect` fails and would
   /// silently drop every region, so both are unboxed explicitly.
+  ///
+  /// The frame is passed through unchanged, margins included, exactly as the
+  /// platform reports it.
   private func encode(region: NSObject, kind: String) -> [String: Any]? {
     guard let frame = (region.value(forKey: RegionKey.frame) as? NSValue)?
       .cgRectValue

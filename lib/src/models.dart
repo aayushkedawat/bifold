@@ -160,18 +160,25 @@ class FoldRegion {
   /// What this region is.
   final RegionKind kind;
 
-  /// The area the region covers, in logical pixels relative to the Flutter
-  /// view.
+  /// The whole area interactive content should avoid, in logical pixels
+  /// relative to the Flutter view.
+  ///
+  /// **This already includes [margins].** The platform reports the frame with
+  /// the clearance built in, so it is the rectangle to lay out around
+  /// directly — do not add the margins again. Use [reservedRect] for the
+  /// hardware itself.
   ///
   /// A [RegionKind.division] may be zero-width: the display creases without a
   /// physical gap. Use [isSeparating] to distinguish a region that splits the
   /// display from one that merely marks a line on it.
   final Rect frame;
 
-  /// Additional clearance the platform recommends around [frame].
+  /// How much of [frame] is clearance rather than hardware.
   ///
-  /// Content that must stay legible should avoid [frame] inflated by these
-  /// margins; content that is purely decorative may run underneath.
+  /// These margins are *contained in* [frame], not added to it. They exist so
+  /// that a caller can tell the two apart: content which must stay legible and
+  /// tappable should clear all of [frame], while purely decorative content may
+  /// run into the margins and stop at [reservedRect].
   final EdgeInsets margins;
 
   /// Whether the hardware behind this region is currently in use.
@@ -181,8 +188,12 @@ class FoldRegion {
   /// laying out around it while it is inactive wastes space.
   final bool isActive;
 
-  /// [frame] expanded by [margins]: the area content should avoid entirely.
-  Rect get avoidanceArea => margins.inflateRect(frame);
+  /// The hardware itself: [frame] with its [margins] removed.
+  ///
+  /// This is the crease or the cutout with no clearance around it. Decorative
+  /// content may run up to this edge; interactive content should stop at
+  /// [frame].
+  Rect get reservedRect => margins.deflateRect(frame);
 
   /// Whether this region actually divides the display into two parts.
   ///
