@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'widgets/bifold_split.dart';
+
 /// One pane of a measured arrangement.
 @immutable
 class ArrangementPane {

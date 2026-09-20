@@ -18,12 +18,14 @@ import UIKit
 ///
 /// # Verification status
 ///
-/// Every symbol used here was verified on 2026-09-20 against a booted iPhone
-/// Duo simulator running iOS 27.1, by Objective-C runtime introspection —
-/// `class_copyMethodList` and `class_copyPropertyList`, reproducible through
-/// `NativeApiProbe`. That is a stronger check than reading a header, because
-/// it is exactly what this code calls. Type encodings are quoted next to each
-/// symbol; see `API_NOTES.md` for the full record.
+/// Every symbol used here was verified on 2026-09-20 by two independent passes
+/// that agree: Objective-C runtime introspection on a booted iPhone Duo
+/// simulator running iOS 27.1 — `class_copyMethodList` and
+/// `class_copyPropertyList`, reproducible through `NativeApiProbe` — and the
+/// iOS 27.1 SDK headers. The runtime pass is what this code actually calls;
+/// the headers add the documentation comments and enum values that
+/// introspection cannot show. Type encodings are quoted next to each symbol;
+/// see `API_NOTES.md` for the full record.
 ///
 /// Nothing here reads a key that has not been verified to exist. KVC raises
 /// `NSUnknownKeyException` for an undefined key, which aborts the process

@@ -1,4 +1,11 @@
 include: package:flutter_lints/flutter.yaml
 
+linter:
+  rules:
+    # Every public member carries documentation, and every doc reference
+    # resolves to a real link rather than plain text in the generated API docs.
+    - public_member_api_docs
+    - comment_references
+
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

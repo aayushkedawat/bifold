@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import '../bifold_platform_interface.dart';
+import '../fakes.dart';
 import '../models.dart';
 
 /// Supplies fold state to the widgets beneath it.

@@ -22,6 +22,13 @@
 /// [FoldInfo.unsupported] and never throws.
 library;
 
+// Imported as well as exported so that the doc references above resolve to
+// links rather than plain text in the generated API docs.
+import 'src/models.dart';
+import 'src/widgets/bifold_debug_overlay.dart';
+import 'src/widgets/bifold_scope.dart';
+import 'src/widgets/bifold_split.dart';
+
 export 'src/arrangement.dart'
     show
         ArrangementAxis,
