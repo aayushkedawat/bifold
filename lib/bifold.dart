@@ -45,5 +45,7 @@ export 'src/models.dart'
 export 'src/widgets/bifold_debug_overlay.dart' show BifoldDebugOverlay;
 export 'src/widgets/bifold_display_features.dart' show BifoldDisplayFeatures;
 export 'src/widgets/bifold_grid.dart' show BifoldGrid;
+export 'src/widgets/bifold_scaffold.dart'
+    show BifoldDestination, BifoldScaffold;
 export 'src/widgets/bifold_scope.dart' show Bifold, BifoldScope;
 export 'src/widgets/bifold_split.dart' show BifoldSplit, BifoldSplitFallback;

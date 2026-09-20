@@ -215,7 +215,7 @@ both passes are reproducible — the runtime probe ships as
 
 The Duo simulator has been exercised shut. The device itself has not shipped,
 so nothing here has run on physical hardware.
-[`docs/manual-tests.md`](docs/manual-tests.md) tracks what has been checked on
+[`doc/manual-tests.md`](doc/manual-tests.md) tracks what has been checked on
 the simulator and what has not.
 
 ## License
