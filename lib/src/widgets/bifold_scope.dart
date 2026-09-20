@@ -208,6 +208,18 @@ abstract final class Bifold {
   /// logging device capability at startup.
   static Future<FoldInfo> get current => BifoldPlatform.instance.getFoldInfo();
 
+  /// A description of the fold APIs the running OS actually exposes.
+  ///
+  /// Reports the real selector names, type encodings and class members that
+  /// this device offers, read from the Objective-C runtime. Intended for bug
+  /// reports: a user on hardware this package has never seen can run it and
+  /// paste the result, which is more useful than a version number.
+  ///
+  /// Returns null on platforms with no native implementation. Reads only —
+  /// nothing is invoked with side effects and nothing is mutated.
+  static Future<String?> debugDescribeNativeApi() =>
+      BifoldPlatform.instance.debugDescribeNativeApi();
+
   /// The fold state stream, without a [BifoldScope].
   ///
   /// Emits the current state on listen, then on every change. Use this for

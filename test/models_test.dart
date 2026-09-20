@@ -329,6 +329,23 @@ void main() {
       expect(info.activeRegions, hasLength(1));
     });
 
+    test('copyWith cannot clear hingeAngle by passing null', () {
+      // The Flutter convention is that a null argument means "leave it", so a
+      // nullable field needs an explicit escape hatch. Without one, callers
+      // silently keep a stale angle.
+      const base = FoldInfo(
+        isFoldable: true,
+        display: FoldDisplay.inner,
+        pose: FoldPose.partiallyOpen,
+        regions: <FoldRegion>[],
+        hingeAngle: 1.5,
+      );
+
+      expect(base.copyWith(hingeAngle: null).hingeAngle, 1.5);
+      expect(base.copyWith(clearHingeAngle: true).hingeAngle, isNull);
+      expect(base.copyWith(hingeAngle: 2.0).hingeAngle, 2.0);
+    });
+
     test('copyWith replaces only the named fields', () {
       const base = FoldInfo.unsupported;
       final copy = base.copyWith(isFoldable: true, pose: FoldPose.fullyOpen);

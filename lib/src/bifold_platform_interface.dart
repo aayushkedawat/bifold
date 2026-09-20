@@ -42,6 +42,14 @@ abstract class BifoldPlatform extends PlatformInterface {
     throw UnimplementedError('getFoldInfo() has not been implemented.');
   }
 
+  /// Describes the fold APIs the running OS exposes. See
+  /// [Bifold.debugDescribeNativeApi].
+  Future<String?> debugDescribeNativeApi() {
+    throw UnimplementedError(
+      'debugDescribeNativeApi() has not been implemented.',
+    );
+  }
+
   /// Emits the fold state whenever it changes.
   ///
   /// The stream emits the current state on listen, then again on every hinge

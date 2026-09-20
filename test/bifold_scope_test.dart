@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bifold/bifold.dart';
+import 'package:bifold/src/method_channel_bifold.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';

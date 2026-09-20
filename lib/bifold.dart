@@ -26,7 +26,6 @@ export 'src/bifold_platform_interface.dart' show BifoldPlatform;
 export 'src/capture_accessory.dart' show BifoldCaptureAccessory;
 export 'src/anchoring.dart' show bifoldAnchorPoint;
 export 'src/fakes.dart' show FoldInfoFakes;
-export 'src/method_channel_bifold.dart' show MethodChannelBifold;
 export 'src/models.dart'
     show
         FoldDisplay,

@@ -430,6 +430,10 @@ class FoldInfo {
   }
 
   /// Creates a copy with the given fields replaced.
+  ///
+  /// Passing null for a field leaves it unchanged, which is the usual Flutter
+  /// convention. Because [hingeAngle] is itself nullable, that convention
+  /// gives no way to clear it — use [clearHingeAngle] for that.
   FoldInfo copyWith({
     bool? isFoldable,
     FoldDisplay? display,
@@ -439,12 +443,13 @@ class FoldInfo {
     FoldSizeClass? horizontalSizeClass,
     FoldSizeClass? verticalSizeClass,
     VerticalBarEdge? verticalBarEdge,
+    bool clearHingeAngle = false,
   }) => FoldInfo(
     isFoldable: isFoldable ?? this.isFoldable,
     display: display ?? this.display,
     pose: pose ?? this.pose,
     regions: regions ?? this.regions,
-    hingeAngle: hingeAngle ?? this.hingeAngle,
+    hingeAngle: clearHingeAngle ? null : (hingeAngle ?? this.hingeAngle),
     horizontalSizeClass: horizontalSizeClass ?? this.horizontalSizeClass,
     verticalSizeClass: verticalSizeClass ?? this.verticalSizeClass,
     verticalBarEdge: verticalBarEdge ?? this.verticalBarEdge,

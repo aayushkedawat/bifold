@@ -63,6 +63,19 @@ class MethodChannelBifold extends BifoldPlatform {
   }
 
   @override
+  Future<String?> debugDescribeNativeApi() async {
+    try {
+      return await methodChannel.invokeMethod<String>(
+        'debugDescribeNativeApi',
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  @override
   Stream<FoldInfo> foldInfoStream() {
     // Broadcast so that several BifoldScopes can listen without each opening
     // its own native subscription.
