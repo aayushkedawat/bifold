@@ -352,6 +352,66 @@ void main() {
     });
   });
 
+  group('hinge angle', () {
+    test('decodes from the payload', () {
+      final info = FoldInfo.fromMap(const <Object?, Object?>{
+        'isFoldable': true,
+        'pose': 'partiallyOpen',
+        'hingeAngle': 1.5707963267948966,
+      });
+      expect(info.hingeAngle, closeTo(1.5707963267948966, 1e-9));
+      expect(info.hingeAngleDegrees, closeTo(90, 1e-9));
+    });
+
+    test('accepts an int angle from the message codec', () {
+      final info = FoldInfo.fromMap(const <Object?, Object?>{
+        'isFoldable': true,
+        'hingeAngle': 3,
+      });
+      expect(info.hingeAngle, 3.0);
+    });
+
+    test('is null when the platform reports none', () {
+      // A non-foldable device, or a foldable before the first hinge update.
+      final info = FoldInfo.fromMap(const <Object?, Object?>{
+        'isFoldable': true,
+        'pose': 'unknown',
+      });
+      expect(info.hingeAngle, isNull);
+      expect(info.hingeAngleDegrees, isNull);
+      expect(FoldInfo.unsupported.hingeAngle, isNull);
+    });
+
+    test('ignores a malformed angle rather than throwing', () {
+      final info = FoldInfo.fromMap(const <Object?, Object?>{
+        'isFoldable': true,
+        'hingeAngle': 'wide open',
+      });
+      expect(info.hingeAngle, isNull);
+    });
+
+    test('participates in equality', () {
+      const base = FoldInfo(
+        isFoldable: true,
+        display: FoldDisplay.inner,
+        pose: FoldPose.partiallyOpen,
+        regions: <FoldRegion>[],
+        hingeAngle: 1.0,
+      );
+      expect(base, base.copyWith());
+      expect(base, isNot(base.copyWith(hingeAngle: 2.0)));
+    });
+
+    test('fakes carry a plausible angle for each pose', () {
+      const size = Size(800, 1000);
+      expect(FoldInfoFakes.closed.hingeAngle, 0);
+      expect(FoldInfoFakes.fullyOpen(viewSize: size).hingeAngleDegrees,
+          closeTo(180, 1e-9));
+      expect(FoldInfoFakes.partiallyOpen(viewSize: size).hingeAngleDegrees,
+          closeTo(90, 1e-9));
+    });
+  });
+
   group('payload version', () {
     test('matches the version the native side is documented to send', () {
       // Bump this together with `payloadVersion` in BifoldPlugin.swift.

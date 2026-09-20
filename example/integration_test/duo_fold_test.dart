@@ -24,6 +24,8 @@ void main() {
       'isFoldable: ${info.isFoldable}\n'
       'display:    ${info.display.name}\n'
       'pose:       ${info.pose.name}\n'
+      'hingeAngle: ${info.hingeAngle} rad'
+      '${info.hingeAngleDegrees == null ? '' : ' (${info.hingeAngleDegrees!.toStringAsFixed(1)} deg)'}\n'
       'regions:    ${info.regions.length}\n'
       '${info.regions.map((r) => '  $r').join('\n')}\n'
       '<<<<<<<<<< BIFOLD LIVE END\n',

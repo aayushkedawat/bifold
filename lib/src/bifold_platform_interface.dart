@@ -33,10 +33,11 @@ abstract class BifoldPlatform extends PlatformInterface {
 
   /// Reads the current fold state once.
   ///
-  /// Returns [FoldInfo.unsupported] on platforms without fold support. Because
-  /// reserved regions only arrive after the platform's first layout pass, an
-  /// early call can legitimately report no regions on a device that has them;
-  /// prefer [foldInfoStream] over polling this.
+  /// Returns [FoldInfo.unsupported] on platforms without fold support. Both
+  /// reserved regions and the hinge angle arrive asynchronously after the
+  /// platform's first layout pass, so an early call can legitimately report
+  /// neither on a device that has both; prefer [foldInfoStream] over polling
+  /// this.
   Future<FoldInfo> getFoldInfo() {
     throw UnimplementedError('getFoldInfo() has not been implemented.');
   }

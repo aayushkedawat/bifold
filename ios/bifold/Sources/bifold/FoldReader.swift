@@ -30,6 +30,12 @@ import UIKit
 /// rather than returning nil.
 final class FoldReader {
 
+  /// Observes the hinge, when the OS provides one.
+  ///
+  /// Owned here so that pose and angle come from the platform rather than
+  /// being inferred, and so that a hinge update can drive the stream directly.
+  let hinge = HingeReader()
+
   // MARK: - Verified symbols
 
   private enum Symbol {
@@ -118,24 +124,35 @@ final class FoldReader {
 
     let regions = readRegions(from: view)
     let display = readDisplay(for: view)
-    return [
+    var payload: [String: Any] = [
       "version": version,
       "isFoldable": true,
       "display": display,
-      "pose": derivePose(display: display, regions: regions),
+      "pose": pose(display: display, regions: regions),
       "regions": regions,
     ]
+    if let angle = hinge.state?.angle {
+      payload["hingeAngle"] = angle
+    }
+    return payload
   }
 
-  /// Whether this device could have a fold.
+  /// Whether this device actually has a fold.
   ///
-  /// HEURISTIC. The OS check above only says the running iOS declares the fold
-  /// APIs, which an iPad on the same release also does. Restricting to the
-  /// phone idiom keeps a tablet from being reported as a foldable phone. A
-  /// non-foldable iPhone on iOS 27.1 passes this check but reports no regions,
-  /// so it still resolves to a sane state.
+  /// The OS check alone only says the running iOS declares the fold APIs,
+  /// which a non-foldable iPhone and an iPad on the same release also do. The
+  /// authoritative signal is the hinge: `UIHingeInteractionUpdate.hinge` is
+  /// documented as nil "when the interaction leaves a hierarchy that provides
+  /// hinge updates", so a hinge that has ever been reported means a real fold.
+  ///
+  /// Until the first hinge update arrives, fall back to the presence of a
+  /// division region, and then to the phone idiom — which at least keeps an
+  /// iPad from being announced as a foldable phone.
   private func isFoldableDevice() -> Bool {
-    UIDevice.current.userInterfaceIdiom == .phone
+    if hinge.sawHinge {
+      return true
+    }
+    return UIDevice.current.userInterfaceIdiom == .phone
   }
 
   /// Which display the view is currently presented on.
@@ -156,16 +173,26 @@ final class FoldReader {
     return isRegular ? "inner" : "outer"
   }
 
-  /// Derives how far the device is folded from what was actually observed.
+  /// How far the device is folded.
   ///
-  /// `UIHingeInteraction` is deliberately not used. Runtime introspection
-  /// shows it exposes no `status`, `hingeStatus` or `angle` member — the value
-  /// is only reachable through the block passed to `-initWithUpdateHandler:`,
-  /// whose parameter type could not be verified without the SDK. Guessing at
-  /// that block's signature would violate the project's first ground rule, and
-  /// a wrong guess crashes rather than degrades.
+  /// Prefers the platform's own `UIHingeStatus`, which is authoritative and
+  /// arrives as soon as the hinge interaction is attached. Falls back to
+  /// deriving the pose from the regions when no hinge has been reported yet,
+  /// so the very first frame is still useful.
+  private func pose(display: String, regions: [[String: Any]]) -> String {
+    if let status = hinge.state?.status {
+      let name = HingeReader.poseName(for: status)
+      if name != "unknown" {
+        return name
+      }
+    }
+    return derivePose(display: display, regions: regions)
+  }
+
+  /// Derives how far the device is folded from the regions alone.
   ///
-  /// The regions themselves carry the same information and are fully verified:
+  /// Used until the first hinge update lands, and on any OS where the hinge
+  /// API is missing. The regions carry the same information:
   ///
   /// * outer display, no regions      → shut
   /// * inner display, division active → creased, so part-way open
@@ -306,33 +333,40 @@ final class FoldReader {
   /// Regions arrive after the first layout pass and change as the device
   /// folds, so they must be observed rather than read once.
   ///
-  /// The mechanism is deliberately boring: a zero-alpha sentinel subview that
-  /// resizes with the Flutter view and reports its own `layoutSubviews`. That
-  /// is ordinary, fully documented UIKit which works on every iOS version, and
-  /// it fires on exactly the events that matter — the view resizing as the
-  /// device folds, opens, or rotates. The hinge interaction's own callback
-  /// would be more direct, but its block signature is unverified (see
-  /// `derivePose`), and a missed callback means a layout that never updates.
+  /// Two mechanisms, because they catch different things:
+  ///
+  /// * A `UIHingeInteraction`, which pushes an update the moment the hinge
+  ///   moves. This is the responsive path and the source of pose and angle.
+  /// * A zero-alpha sentinel subview that resizes with the Flutter view and
+  ///   reports its own `layoutSubviews`. Regions lag the hinge and arrive only
+  ///   after a layout pass, so a hinge update alone can report a pose whose
+  ///   regions have not landed yet. The sentinel catches that second wave, and
+  ///   keeps the package working on an OS with no hinge API at all.
   func observe(view: UIView, onChange: @escaping () -> Void) -> FoldObservation {
+    hinge.attach(to: view, onChange: onChange)
+
     let sentinel = LayoutSentinel(frame: view.bounds)
     sentinel.onLayout = onChange
     view.addSubview(sentinel)
-    return FoldObservation(sentinel: sentinel)
+    return FoldObservation(sentinel: sentinel, hinge: hinge)
   }
 }
 
 /// A cancellable fold-state observation.
 final class FoldObservation {
   private weak var sentinel: LayoutSentinel?
+  private let hinge: HingeReader
 
-  init(sentinel: LayoutSentinel) {
+  init(sentinel: LayoutSentinel, hinge: HingeReader) {
     self.sentinel = sentinel
+    self.hinge = hinge
   }
 
   func cancel() {
     sentinel?.onLayout = nil
     sentinel?.removeFromSuperview()
     sentinel = nil
+    hinge.detach()
   }
 }
 

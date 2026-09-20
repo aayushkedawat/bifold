@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show Rect, Size;
 
 import 'package:flutter/painting.dart' show EdgeInsets;
@@ -48,6 +49,7 @@ abstract final class FoldInfoFakes {
     display: FoldDisplay.outer,
     pose: FoldPose.closed,
     regions: <FoldRegion>[],
+    hingeAngle: 0,
   );
 
   /// A foldable open flat on its inner display.
@@ -66,6 +68,7 @@ abstract final class FoldInfoFakes {
       _division(viewSize, isActive: false),
       _occlusion(viewSize, isActive: cameraActive),
     ]),
+    hingeAngle: math.pi,
   );
 
   /// A foldable part-way open, so the inner display is creased.
@@ -81,6 +84,7 @@ abstract final class FoldInfoFakes {
     required Size viewSize,
     double thickness = 24.0,
     bool cameraActive = false,
+    double hingeAngle = math.pi / 2,
   }) => FoldInfo(
     isFoldable: true,
     display: FoldDisplay.inner,
@@ -89,6 +93,7 @@ abstract final class FoldInfoFakes {
       _division(viewSize, isActive: true, thickness: thickness),
       _occlusion(viewSize, isActive: cameraActive),
     ]),
+    hingeAngle: hingeAngle,
   );
 
   /// A foldable whose division runs top-to-bottom rather than side-to-side.
@@ -120,6 +125,7 @@ abstract final class FoldInfoFakes {
           isActive: true,
         ),
       ]),
+      hingeAngle: math.pi / 2,
     );
   }
 

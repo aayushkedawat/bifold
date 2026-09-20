@@ -14,10 +14,16 @@ First cut of fold awareness for the foldable iPhone.
 * `BifoldDebugOverlay`, which draws the reserved regions the platform reports.
 * `FoldInfoFakes`, so fold-aware layouts can be tested on any machine with no
   simulator and no iOS SDK.
+* `FoldInfo.hingeAngle` (radians) and `hingeAngleDegrees`, read from
+  `UIHingeInteraction`. `pose` comes from the platform's own `UIHingeStatus`,
+  falling back to region-derived state until the first hinge update lands.
 * iOS support only. Every other platform reports `FoldInfo.unsupported`.
+* Builds on Xcode 26.x and 27.0 — the iOS 27.1 SDK is not required, because
+  fold symbols are resolved through the Objective-C runtime.
 
 Known limitations, in full in the README:
 
-* The region coordinate space is not yet verified on an opened device.
-* Hinge angle is not exposed; pose is derived from the reported regions.
-* Nothing has been verified on physical hardware, which does not yet exist.
+* `pose` and `hingeAngle` arrive a moment after the stream is first listened
+  to, because the platform delivers the initial hinge update asynchronously.
+* Nothing has been verified on physical hardware, which does not yet exist,
+  and the simulator has only been observed shut.

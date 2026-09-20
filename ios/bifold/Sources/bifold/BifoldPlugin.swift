@@ -27,6 +27,14 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   private var eventSink: FlutterEventSink?
   private var observation: FoldObservation?
 
+  /// The last payload sent, so an unchanged state is not resent.
+  ///
+  /// `layoutSubviews` fires far more often than the fold state changes, and
+  /// the hinge pushes its own updates on top. Dart already ignores an
+  /// unchanged `FoldInfo`, but dropping duplicates here keeps them off the
+  /// channel entirely.
+  private var lastPayload: NSDictionary?
+
   /// The registrar is retained so the plugin can find the Flutter view lazily.
   ///
   /// At registration time the view controller's view has not been laid out, and
@@ -69,6 +77,11 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
         )
         return
       }
+      // Attach the hinge if nothing has yet, so that repeated one-shot reads
+      // gain a pose and angle even when no one is listening to the stream.
+      // The first such read still predates the hinge's initial update, which
+      // is why the stream is the documented way to track fold state.
+      foldReader.hinge.attach(to: view, onChange: {})
       result(foldReader.read(from: view, version: payloadVersion))
     case "isSupported":
       result(FoldReader.isSupported)
@@ -122,20 +135,30 @@ extension BifoldPlugin: FlutterStreamHandler {
     // Emit immediately so the first frame has something, then again on every
     // change. Regions arrive after the first layout pass, so this first value
     // will usually report none.
-    events(foldReader.read(from: view, version: payloadVersion))
+    emit(from: view, to: events)
 
     observation = foldReader.observe(view: view) { [weak self] in
       guard let self, let sink = self.eventSink, let view = self.flutterView()
       else { return }
-      sink(self.foldReader.read(from: view, version: payloadVersion))
+      self.emit(from: view, to: sink)
     }
     return nil
+  }
+
+  /// Sends a reading, unless it is identical to the previous one.
+  private func emit(from view: UIView, to sink: FlutterEventSink) {
+    let payload = foldReader.read(from: view, version: payloadVersion)
+    let boxed = payload as NSDictionary
+    guard boxed != lastPayload else { return }
+    lastPayload = boxed
+    sink(payload)
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
     observation?.cancel()
     observation = nil
     eventSink = nil
+    lastPayload = nil
     return nil
   }
 }

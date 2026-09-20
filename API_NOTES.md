@@ -166,40 +166,82 @@ bare crease or cutout inside it. Nothing inflates the frame anywhere.
 
 | field | value |
 |---|---|
-| status | ✅ VERIFIED (shape) |
-| methods | `-initWithUpdateHandler:` → `@24@0:8@?16` (takes a **block**)<br>`-init`, `-view`, `-isEnabled`, `-setEnabled:` |
-| properties | `@enabled` (BOOL, getter `isEnabled`), `@view` (`UIView`) |
-| verified | 2026-09-20, iOS 27.1 runtime |
+| status | ✅ VERIFIED, and in use |
+| source | `UIHingeInteraction.h`, iOS 27.1 SDK |
+| verified | 2026-09-20 |
 
-### ⛔️ There is no `status` property
+```objc
+- (instancetype)initWithUpdateHandler:
+    (void(^)(UIHingeInteraction *, UIHingeInteractionUpdate *))updateHandler
+    NS_DESIGNATED_INITIALIZER;
+@property (nonatomic, getter=isEnabled) BOOL enabled;
+```
 
-| probe result | |
-|---|---|
-| `responds to -status` | **false** |
-| `responds to -hingeStatus` | **false** |
-| `responds to -angle` | **false** |
+`init` and `new` are `NS_UNAVAILABLE`, so the update handler is the only way
+to construct one. `bifold` allocates it through `objc_msgSend` and takes the
+result as retained exactly once — `alloc` returns +1 and `initWithUpdateHandler:`
+consumes and returns it. See `HingeReader.makeInteraction`.
 
-An earlier draft of `FoldReader` read `value(forKey: "status")` on the
-interaction. That is not merely wrong — KVC raises `NSUnknownKeyException` for
-an undefined key, which **aborts the process**. It was caught by exactly that
-crash while probing. Hinge state is only reachable through the block passed to
-`-initWithUpdateHandler:`, whose parameter type cannot be verified without the
-SDK.
+The handler "is invoked with the initial hinge state, and again whenever there
+is an update", which is why the angle shows up shortly *after* the stream is
+first listened to rather than on the first reading.
 
-`bifold` therefore does not use the hinge at all; it derives pose from the
-regions, which are fully verified. See `FoldReader.derivePose`.
-
-### `UIHingeStatus`, `UIHingeContext`
+### `UIHingeInteractionUpdate`
 
 | field | value |
 |---|---|
-| status | ⛔️ neither is a class |
+| status | ✅ VERIFIED |
+| source | `UIHingeInteraction.h`, iOS 27.1 SDK |
 
-`NSClassFromString` returns nil for both, so `UIHingeStatus` is an `NS_ENUM`.
-No `UIHingeStatusClosed` / `…PartiallyOpen` / `…FullyOpen` symbols are
-exported. **The draft `FoldPose { closed, book, tabletop, flat, unknown }` in
-`CLAUDE.md` has no basis in the runtime** — `book`/`tabletop`/`flat` are Android
-posture vocabulary. `bifold` ships `closed`/`partiallyOpen`/`fullyOpen`/`unknown`.
+```objc
+@property (nonatomic, readonly, copy, nullable) UIHinge *hinge;
+```
+
+Documented as nil "when the interaction leaves a hierarchy that provides hinge
+updates". That nullability is load-bearing: a non-nil hinge is the
+authoritative "this device really folds" signal, which is what `bifold` uses
+for `isFoldable` in place of a device-idiom guess.
+
+### `UIHinge` and `UIHingeStatus`
+
+| field | value |
+|---|---|
+| status | ✅ VERIFIED |
+| source | `UIHinge.h`, iOS 27.1 SDK |
+
+```objc
+typedef NS_ENUM(NSInteger, UIHingeStatus) {
+    UIHingeStatusUnknown = 0,
+    UIHingeStatusClosed = 1,
+    UIHingeStatusPartiallyOpen = 2,
+    UIHingeStatusFullyOpen = 3,
+};
+
+@property (nonatomic, readonly) UIHingeStatus status;
+@property (nonatomic, readonly) CGFloat angle;  // radians
+```
+
+**The enum starts at `Unknown = 0`, so `Closed` is 1.** Runtime introspection
+could not show this — an enum has no class to reflect on — and an earlier draft
+of this package guessed a zero-based `closed/partiallyOpen/fullyOpen` ordering,
+which would have reported every pose shifted by one. The regions-derived
+fallback was used instead until the SDK settled it. This is the clearest case
+in the project for why guessing was not allowed.
+
+Apple's own guidance on the angle: "The rate and granularity of angle updates
+are system policy and can change... If you only need to know whether the hinge
+is closed, partially open, or fully open, prefer `status` over the angle."
+`bifold` follows this — `FoldInfo.pose` comes from `status`, and
+`FoldInfo.hingeAngle` is offered separately.
+
+### ⛔️ There is no `status` property on the interaction
+
+Runtime introspection showed `responds to -status`, `-hingeStatus` and `-angle`
+all **false** on `UIHingeInteraction`, and the header confirms why: status and
+angle live on `UIHinge`, reached through the update. An earlier draft read
+`value(forKey: "status")` on the interaction, which is not merely wrong — KVC
+raises `NSUnknownKeyException` for an undefined key, which **aborts the
+process**. It was caught by exactly that crash.
 
 ---
 

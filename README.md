@@ -91,6 +91,8 @@ a crease with zero thickness.
 | `isFoldable` | the device has a fold this package can report on |
 | `display` | `outer`, `inner`, or `none` |
 | `pose` | `closed`, `partiallyOpen`, `fullyOpen`, `unknown` |
+| `hingeAngle` | hinge angle in radians, or null if the platform reports none |
+| `hingeAngleDegrees` | the same value in degrees |
 | `regions` | every reserved region, active or not |
 | `division` | the active fold, or null if the display is not creased |
 | `activeRegions` | regions whose hardware is currently in use |
@@ -99,9 +101,14 @@ Regions are in logical pixels relative to the Flutter view. **Never cache
 them** — they arrive after the first layout pass and change as the device
 folds. Read them from the current `FoldInfo` every build.
 
-`FoldPose` mirrors the platform's own hinge states. Postures such as "book" or
-"tabletop" are deliberately absent: they are Android foldable vocabulary and
-this device does not report them.
+`FoldPose` mirrors the platform's own `UIHingeStatus` one-for-one. Postures
+such as "book" or "tabletop" are deliberately absent: they are Android foldable
+vocabulary and this device does not report them.
+
+Prefer `pose` over `hingeAngle` for layout decisions. Apple is explicit that
+the angle's "rate and granularity... are system policy and can change", so
+thresholding it yourself is less stable than the classification the platform
+already publishes.
 
 ## Requirements
 
@@ -133,6 +140,10 @@ until their CI upgraded.
 * **That `frame` already includes `margins`.** This one corrected a bug: an
   earlier draft inflated the frame by the margins, double-counting the
   clearance. See [`API_NOTES.md`](API_NOTES.md).
+* **Live hinge reporting on a Duo.** `UIHingeInteraction` is constructed
+  through the runtime and its updates arrive: a shut simulator reports
+  `UIHingeStatusClosed` and an angle of 0. `pose` comes from the platform,
+  not from inference.
 * Reading fold state end to end on that simulator, built against the **27.0**
   SDK — the proof that the runtime-resolution approach genuinely works.
 * A shut device reports the outer display and no reserved regions.
@@ -159,10 +170,6 @@ these, and marks which have been done.
 
 * **iOS only.** Android foldables already get display features from Flutter
   itself, so there is nothing to add there.
-* **No hinge angle.** `UIHingeInteraction` exposes no readable status or angle
-  — the value only arrives through a block whose signature cannot be verified
-  without the 27.1 SDK. Rather than guess, `bifold` derives pose from the
-  reported regions, which are fully verified. See [`API_NOTES.md`](API_NOTES.md).
 * **`MediaQuery.displayFeatures` is not populated.** Only the engine can do
   that, and [flutter/flutter#193025](https://github.com/flutter/flutter/pull/193025)
   is doing it. `bifold` exposes its own model instead and deliberately does not
@@ -170,9 +177,13 @@ these, and marks which have been done.
 * **No camera capture accessory.** `CameraCaptureAccessory` is SwiftUI-only and
   invisible to Objective-C, and Flutter would need multi-scene support first.
   See [`docs/phase0.md`](docs/phase0.md) §5.
-* `isFoldable` uses the phone idiom to avoid reporting an iPad on iOS 27.1 as a
-  foldable. A non-foldable iPhone passes that check but reports no regions, so
-  it still resolves correctly.
+* **`pose` and `hingeAngle` arrive a moment after the stream is first
+  listened to.** The platform delivers the initial hinge update
+  asynchronously, so the very first reading — and any one-shot
+  `Bifold.current` taken at launch — can have neither. Until the hinge
+  reports, `pose` is derived from the regions instead, so it is never wrong,
+  only occasionally late. Use `Bifold.of(context)`, which updates when it
+  lands.
 
 ## Prior art
 

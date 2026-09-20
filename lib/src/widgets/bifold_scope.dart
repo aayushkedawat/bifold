@@ -198,10 +198,14 @@ abstract final class Bifold {
 
   /// Reads the fold state once, without a [BifoldScope].
   ///
-  /// Reserved regions only arrive after the platform's first layout pass, so
-  /// an early call can report no regions on a device that has them. Prefer
-  /// [Bifold.of] or [stream]; this exists for one-shot checks such as logging
-  /// device capability at startup.
+  /// Two things arrive late and so can be missing from an early call:
+  /// reserved regions, which the platform only produces after its first
+  /// layout pass, and [FoldInfo.hingeAngle], whose first update is delivered
+  /// asynchronously after the hinge is first observed. A one-shot read taken
+  /// immediately at launch will typically report neither.
+  ///
+  /// Prefer [Bifold.of] or [stream]. This exists for one-shot checks such as
+  /// logging device capability at startup.
   static Future<FoldInfo> get current => BifoldPlatform.instance.getFoldInfo();
 
   /// The fold state stream, without a [BifoldScope].

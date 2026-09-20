@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show Rect, Size;
 
 import 'package:flutter/foundation.dart';
@@ -248,6 +249,7 @@ class FoldInfo {
     required this.display,
     required this.pose,
     required this.regions,
+    this.hingeAngle,
   });
 
   /// The state reported on every device and platform without fold support.
@@ -261,6 +263,7 @@ class FoldInfo {
     display: FoldDisplay.none,
     pose: FoldPose.unknown,
     regions: <FoldRegion>[],
+    hingeAngle: null,
   );
 
   /// Decodes fold state from a platform channel map.
@@ -280,11 +283,14 @@ class FoldInfo {
       regions = const <FoldRegion>[];
     }
 
+    final Object? rawAngle = map['hingeAngle'];
+
     return FoldInfo(
       isFoldable: map['isFoldable'] == true,
       display: FoldDisplay.fromName(map['display'] as String?),
       pose: FoldPose.fromName(map['pose'] as String?),
       regions: List<FoldRegion>.unmodifiable(regions),
+      hingeAngle: rawAngle is num ? rawAngle.toDouble() : null,
     );
   }
 
@@ -313,6 +319,25 @@ class FoldInfo {
   Iterable<FoldRegion> get activeRegions =>
       regions.where((FoldRegion region) => region.isActive);
 
+  /// The hinge angle in **radians**, or null when the platform reports none.
+  ///
+  /// Null on every non-foldable device, and also on a foldable before the
+  /// first hinge update arrives.
+  ///
+  /// The platform documents the rate and precision of angle updates as system
+  /// policy that can change, so do not build on a particular update frequency.
+  /// If all you need is shut / part-way / flat, use [pose] instead — it is the
+  /// platform's own classification rather than a threshold applied to this.
+  ///
+  /// See [hingeAngleDegrees] for the same value in degrees.
+  final double? hingeAngle;
+
+  /// [hingeAngle] converted to degrees, or null when there is no angle.
+  ///
+  /// 0° is shut and 180° is flat, though the device's real range is narrower.
+  double? get hingeAngleDegrees =>
+      hingeAngle == null ? null : hingeAngle! * 180.0 / math.pi;
+
   /// The active fold, if the display is currently creased.
   ///
   /// Null when the device is flat, folded shut, on the outer display, or not
@@ -333,11 +358,13 @@ class FoldInfo {
     FoldDisplay? display,
     FoldPose? pose,
     List<FoldRegion>? regions,
+    double? hingeAngle,
   }) => FoldInfo(
     isFoldable: isFoldable ?? this.isFoldable,
     display: display ?? this.display,
     pose: pose ?? this.pose,
     regions: regions ?? this.regions,
+    hingeAngle: hingeAngle ?? this.hingeAngle,
   );
 
   @override
@@ -347,14 +374,22 @@ class FoldInfo {
           other.isFoldable == isFoldable &&
           other.display == display &&
           other.pose == pose &&
+          other.hingeAngle == hingeAngle &&
           listEquals(other.regions, regions);
 
   @override
-  int get hashCode =>
-      Object.hash(isFoldable, display, pose, Object.hashAll(regions));
+  int get hashCode => Object.hash(
+    isFoldable,
+    display,
+    pose,
+    hingeAngle,
+    Object.hashAll(regions),
+  );
 
   @override
   String toString() =>
       'FoldInfo(isFoldable: $isFoldable, display: ${display.name}, '
-      'pose: ${pose.name}, regions: ${regions.length})';
+      'pose: ${pose.name}, regions: ${regions.length}'
+      '${hingeAngle == null ? '' : ', hingeAngle: '
+          '${hingeAngleDegrees!.toStringAsFixed(1)}\u00b0'})';
 }

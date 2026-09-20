@@ -126,6 +126,8 @@ class _StatusBar extends StatelessWidget {
                 ),
                 _Chip(label: 'display: ${info.display.name}'),
                 _Chip(label: 'pose: ${info.pose.name}'),
+                if (info.hingeAngleDegrees case final degrees?)
+                  _Chip(label: '${degrees.toStringAsFixed(0)}\u00b0'),
                 _Chip(
                   label: '${info.regions.length} region'
                       '${info.regions.length == 1 ? '' : 's'}',
