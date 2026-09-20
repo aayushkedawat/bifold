@@ -31,3 +31,7 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# Local agent instructions, not part of the package.
+Claude.md
+CLAUDE.md
