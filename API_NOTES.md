@@ -438,6 +438,35 @@ The AVD also advertises `REAR_DISPLAY_MODE` and `CONCURRENT_INNER_DEFAULT`
 device states, which is the first evidence that Android rear-display work is
 testable here without hardware. Not yet exercised.
 
+## `androidx.window.area` — rear display
+
+```java
+// WindowAreaController
+void presentContentOnWindowArea(Binder, Activity, Executor,
+                                WindowAreaPresentationSessionCallback);
+void transferActivityToWindowArea(Binder, Activity, Executor,
+                                  WindowAreaSessionCallback);
+// WindowAreaSessionPresenter
+Context getContext();
+void setContentView(android.view.View);   // a plain View
+// WindowAreaCapability.Status
+WINDOW_AREA_STATUS_UNSUPPORTED | _UNAVAILABLE | _AVAILABLE | _ACTIVE
+```
+
+`setContentView` taking a plain `View` is what makes presenting possible from
+Flutter without managing a `Presentation`: a second engine from
+`FlutterEngineGroup.createAndRunEngine`, a `FlutterView` attached to it, handed
+straight to the presenter. Verified end to end on `pixel_9_pro_fold`, where
+`present()` moved presentation from `available` to `active` with real Flutter
+content rendering.
+
+**Ending a session does not work on the emulator.** `WindowAreaSession.close()`
+produces no `onSessionEnded` callback and `WindowAreaInfo` keeps reporting
+`WINDOW_AREA_STATUS_ACTIVE` indefinitely, observed over six seconds of polling.
+The second engine is destroyed correctly so nothing leaks, but the reported
+status stays `active`. `bifold` passes that through rather than substituting a
+value the platform is not reporting. Unverified on hardware.
+
 ### UNVERIFIED
 
 * `FoldingFeature.bounds` is documented as window-relative and is treated as

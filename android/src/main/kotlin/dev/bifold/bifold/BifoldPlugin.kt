@@ -41,6 +41,7 @@ class BifoldPlugin :
 
   private lateinit var methodChannel: MethodChannel
   private lateinit var eventChannel: EventChannel
+  private lateinit var rearDisplayChannel: EventChannel
 
   private var activity: Activity? = null
   private var tracker: WindowInfoTrackerCallbackAdapter? = null
@@ -61,6 +62,8 @@ class BifoldPlugin :
   private var capabilities: CapabilityReader? = null
 
   private var areaController: WindowAreaControllerCallbackAdapter? = null
+  private var rearDisplay: RearDisplay? = null
+  private var rearDisplaySink: EventChannel.EventSink? = null
 
   private var sink: EventChannel.EventSink? = null
   private var lastPayload: Map<String, Any?>? = null
@@ -88,6 +91,7 @@ class BifoldPlugin :
 
   private val areaListener = Consumer<List<WindowAreaInfo>> { areas ->
     capabilities?.observeWindowAreas(areas)
+    rearDisplay?.observe(areas)
     emit()
   }
 
@@ -98,11 +102,26 @@ class BifoldPlugin :
     methodChannel.setMethodCallHandler(this)
     eventChannel = EventChannel(binding.binaryMessenger, "dev.bifold/fold_info")
     eventChannel.setStreamHandler(this)
+    rearDisplayChannel =
+      EventChannel(binding.binaryMessenger, "dev.bifold/rear_display")
+    rearDisplayChannel.setStreamHandler(
+      object : EventChannel.StreamHandler {
+        override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+          rearDisplaySink = events
+          emitRearDisplay()
+        }
+
+        override fun onCancel(arguments: Any?) {
+          rearDisplaySink = null
+        }
+      },
+    )
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     methodChannel.setMethodCallHandler(null)
     eventChannel.setStreamHandler(null)
+    rearDisplayChannel.setStreamHandler(null)
     reader = null
     capabilities = null
   }
@@ -150,6 +169,11 @@ class BifoldPlugin :
     reader?.attach(activity)
     tracker = WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(activity))
     areaController = WindowAreaControllerCallbackAdapter(WindowAreaController.getOrCreate())
+    rearDisplay = RearDisplay(
+      WindowAreaController.getOrCreate(),
+      mainExecutor,
+      ::emitRearDisplay,
+    )
     hinge = HingeReader(activity) { radians ->
       reader?.update(radians)
       emit()
@@ -162,6 +186,8 @@ class BifoldPlugin :
   private fun unbind() {
     stopObserving()
     reader?.detach()
+    rearDisplay?.end()
+    rearDisplay = null
     activity = null
     tracker = null
     areaController = null
@@ -189,6 +215,32 @@ class BifoldPlugin :
     when (call.method) {
       "getFoldInfo" -> result.success(currentPayload())
       "getCapabilities" -> result.success(currentCapabilities())
+      "rearDisplayStatus" -> result.success(rearDisplay?.status() ?: unsupportedRearDisplay())
+      "presentOnRearDisplay" -> {
+        val activity = activity
+        val entrypoint = call.argument<String>("entrypoint")
+        if (activity == null || entrypoint == null) {
+          result.success(false)
+        } else {
+          result.success(
+            rearDisplay?.present(
+              activity,
+              entrypoint,
+              call.argument<String>("libraryUri"),
+            ) == true,
+          )
+        }
+      }
+      "transferToRearDisplay" -> {
+        val activity = activity
+        result.success(
+          if (activity == null) false else rearDisplay?.transfer(activity) == true,
+        )
+      }
+      "endRearDisplay" -> {
+        rearDisplay?.end()
+        result.success(null)
+      }
       "debugDescribeNativeApi" -> result.success(describeNativeApi())
       // The capture accessory is iOS-only today. Answering rather than
       // failing keeps BifoldCaptureAccessory usable from shared code.
@@ -228,6 +280,13 @@ class BifoldPlugin :
     } else {
       activity.windowManager.defaultDisplay.rotation
     }
+  }
+
+  private fun unsupportedRearDisplay(): Map<String, String> =
+    mapOf("presentation" to "unsupported", "transfer" to "unsupported")
+
+  private fun emitRearDisplay() {
+    rearDisplaySink?.success(rearDisplay?.status() ?: unsupportedRearDisplay())
   }
 
   private fun describeNativeApi(): String {

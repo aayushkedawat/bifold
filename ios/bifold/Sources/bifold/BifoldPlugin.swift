@@ -27,6 +27,7 @@ private let payloadVersion = 1
 public class BifoldPlugin: NSObject, FlutterPlugin {
   private let foldReader: FoldReader
   private var eventSink: FlutterEventSink?
+  private var rearDisplaySink: FlutterEventSink?
   private var observation: FoldObservation?
 
   /// Measures what UIKit's own split arrangement would produce.
@@ -82,6 +83,14 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
     )
     eventChannel.setStreamHandler(instance)
 
+    let rearDisplayChannel = FlutterEventChannel(
+      name: "dev.bifold/rear_display",
+      binaryMessenger: registrar.messenger()
+    )
+    rearDisplayChannel.setStreamHandler(
+      RearDisplayStreamHandler(plugin: instance)
+    )
+
     let accessoryChannel = FlutterEventChannel(
       name: Channels.accessoryEvents,
       binaryMessenger: registrar.messenger()
@@ -92,6 +101,16 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   }
 
   /// Wires the accessory availability stream to the plugin.
+  fileprivate func setRearDisplaySink(_ sink: FlutterEventSink?) {
+    rearDisplaySink = sink
+    emitRearDisplay()
+  }
+
+  /// Pushes the current rear-display status to Dart.
+  func emitRearDisplay() {
+    rearDisplaySink?(rearDisplayStatus())
+  }
+
   fileprivate func setAccessorySink(_ sink: FlutterEventSink?) {
     accessorySink = sink
     if #available(iOS 27.1, *), let sink {
@@ -125,6 +144,46 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
           sawDivision: foldReader.sawDivision
         )
       )
+    // The rear display, expressed the same way Android expresses it. On this
+    // platform only presentation exists: there is no way to move the whole
+    // app to the outer display, so transfer is permanently unsupported.
+    case "rearDisplayStatus":
+      result(rearDisplayStatus())
+    case "presentOnRearDisplay":
+      guard #available(iOS 27.1, *),
+        let args = call.arguments as? [String: Any],
+        let entrypoint = args["entrypoint"] as? String,
+        let host = registrar?.viewController
+      else {
+        result(false)
+        return
+      }
+      // Registering and enabling in one call, because that is the whole of
+      // "present" on Android and the unified API should not make a caller
+      // perform an iOS-shaped two-step.
+      let registered = CaptureAccessory.register(
+        on: host,
+        entrypoint: entrypoint,
+        libraryURI: args["libraryUri"] as? String
+      )
+      if registered {
+        CaptureAccessory.shared?.onAvailabilityChanged = { [weak self] _ in
+          self?.emitRearDisplay()
+        }
+        CaptureAccessory.shared?.isEnabled = true
+      }
+      result(registered)
+    case "transferToRearDisplay":
+      // No equivalent exists on this platform, and pretending otherwise would
+      // make a cross-platform caller believe it had moved.
+      result(false)
+    case "endRearDisplay":
+      if #available(iOS 27.1, *) {
+        CaptureAccessory.shared?.isEnabled = false
+        CaptureAccessory.unregister()
+        emitRearDisplay()
+      }
+      result(nil)
     case "isSupported":
       result(FoldReader.isSupported)
     case "debugDescribeNativeApi":
@@ -242,6 +301,29 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   /// documented there as "the `UIViewController` whose view is displaying
   /// Flutter content". Its `view` is therefore the view reserved regions
   /// should be read from.
+  /// Maps the capture accessory onto the shared four-state model.
+  ///
+  /// Only presentation exists on this platform: there is no way to move the
+  /// whole app to the outer display, so transfer is permanently unsupported
+  /// rather than merely unavailable.
+  private func rearDisplayStatus() -> [String: String] {
+    guard #available(iOS 27.1, *), CaptureAccessory.isSupported else {
+      return ["presentation": "unsupported", "transfer": "unsupported"]
+    }
+    let accessory = CaptureAccessory.shared
+    let presentation: String
+    if accessory?.isEnabled == true, accessory?.isAvailable == true {
+      presentation = "active"
+    } else if accessory?.isAvailable == true {
+      presentation = "available"
+    } else {
+      // Supported, but the system is not willing yet -- typically because no
+      // capture session is running.
+      presentation = "unavailable"
+    }
+    return ["presentation": presentation, "transfer": "unsupported"]
+  }
+
   private func flutterView() -> UIView? {
     // `isViewLoaded` avoids forcing the view to load early, which would
     // trigger a layout pass before UIKit is ready to report regions.
@@ -324,6 +406,34 @@ private final class CaptureAccessoryStreamHandler: NSObject, FlutterStreamHandle
 
   func onCancel(withArguments arguments: Any?) -> FlutterError? {
     plugin?.setAccessorySink(nil)
+    return nil
+  }
+}
+
+
+/// Stream handler for rear-display status.
+///
+/// Separate from the fold stream so that listening for one does not start the
+/// other, and separate from the accessory stream so the older API keeps
+/// working unchanged.
+private final class RearDisplayStreamHandler: NSObject, FlutterStreamHandler {
+  private weak var plugin: BifoldPlugin?
+
+  init(plugin: BifoldPlugin) {
+    self.plugin = plugin
+    super.init()
+  }
+
+  func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    plugin?.setRearDisplaySink(events)
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    plugin?.setRearDisplaySink(nil)
     return nil
   }
 }

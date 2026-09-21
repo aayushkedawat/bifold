@@ -61,6 +61,8 @@ export 'src/capabilities.dart'
         FoldFormFactor,
         RearDisplayMode;
 export 'src/capture_accessory.dart' show BifoldCaptureAccessory;
+export 'src/rear_display.dart'
+    show BifoldRearDisplay, RearDisplayAvailability, RearDisplayStatus;
 export 'src/anchoring.dart' show bifoldAnchorPoint;
 export 'src/fakes.dart'
     show BifoldCapabilityFakes, FakeBifoldPlatform, FoldInfoFakes;

@@ -1,3 +1,39 @@
+## 0.3.0
+
+**Added — rear display**
+
+Content on the display that faces the rear camera, behind one API on both
+platforms.
+
+* `BifoldRearDisplay.present(entrypoint:)` runs a second Flutter engine whose
+  content appears on the other display while the app stays where it is. On
+  Android this is `OPERATION_PRESENT_ON_AREA`; on iOS it is the camera capture
+  accessory. The entrypoint needs `@pragma('vm:entry-point')`.
+* `BifoldRearDisplay.transferActivity()` moves the whole app across. Android
+  only — iOS reports `unsupported` and does nothing, rather than pretending.
+* `BifoldRearDisplay.availability` and `.current` report both modes with a
+  four-state `RearDisplayStatus`: `unsupported`, `unavailable`, `available`,
+  `active`. Four rather than a boolean because "this device cannot" and "it
+  could, but not now" call for different UI — hide the control versus disable
+  it.
+* `BifoldRearDisplay.end()` ends whichever session is running.
+
+`BifoldCaptureAccessory` is unchanged and still works. It remains the right
+choice for iOS-specific code; `BifoldRearDisplay` is the cross-platform
+surface over the same thing.
+
+**Known limitations**
+
+* **Ending a presentation session is unverified.** On the Android 37.2
+  emulator `close()` produces no `onSessionEnded` callback and the platform
+  keeps reporting the area as `active` indefinitely. The second engine is
+  destroyed correctly so nothing leaks, but the status stays `active`. That
+  value is passed through rather than replaced with an `available` the
+  platform is not reporting. A physical device may behave correctly.
+* Starting a session *is* verified: `available` to `active` with real Flutter
+  content, on a `pixel_9_pro_fold` emulator.
+* Nothing here has run on physical hardware, on either platform.
+
 ## 0.2.0
 
 Android foldables are supported. The same `FoldInfo`, the same widgets and the
