@@ -181,6 +181,10 @@ void main() {
     expect(capabilityGate, isNotNull);
     expect(capabilitiesOutsideTheTree, isNotNull);
   });
+  test('the testing examples build', () {
+    expect(fakeWithCapabilities, isNotNull);
+    expect(driveTheStream, isNotNull);
+  });
 }
 
 // --- What can this device do? --------------------------------------------
@@ -207,4 +211,18 @@ Future<void> capabilitiesOutsideTheTree() async {
   final source = Bifold.capabilities.sourceOf(FoldFeature.fold);
   // ignore: unused_local_variable
   final report = await Bifold.diagnosticReport();
+}
+
+// --- Testing -------------------------------------------------------------
+Widget fakeWithCapabilities() => BifoldScope.fake(
+      info: FoldInfoFakes.closed,
+      capabilities: BifoldCapabilityFakes.unopenedFoldable(),
+      child: const SizedBox(),
+    );
+
+void driveTheStream(WidgetTester tester) {
+  final platform = FakeBifoldPlatform();
+  BifoldPlatform.instance = platform;
+  addTearDown(platform.dispose);
+  platform.emit(FoldInfoFakes.partiallyOpen(viewSize: const Size(800, 1000)));
 }

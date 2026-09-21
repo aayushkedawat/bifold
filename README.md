@@ -8,8 +8,12 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Fold awareness for Flutter apps on the foldable iPhone and on Android
-foldables: where the fold is, how far the device is open, which display you are
-on, and where hardware is in the way.
+foldables — book-style devices that open out into a tablet-sized display, and
+flip-style devices that close down into a square. Where the fold is, how far
+the device is open, which display you are on, and where hardware is in the way.
+
+Adaptive, fold-aware layout without writing a hinge sensor integration or a
+Jetpack WindowManager binding yourself.
 
 One API for both. The same `FoldInfo`, the same layout widgets and the same
 test fakes work on either platform, and your code never asks which one it is
@@ -405,6 +409,43 @@ for (final entry in FoldInfoFakes.poseMatrix(size).entries) {
 Individual fakes: `FoldInfoFakes.closed`, `.fullyOpen()`, `.partiallyOpen()`,
 `.partiallyOpenVertical()`, `.unsupported`.
 
+### Faking what a device *can* do
+
+`BifoldCapabilityFakes` supplies capability profiles, named after device
+shapes rather than products because they model a class of hardware:
+
+```dart
+BifoldScope.fake(
+  info: FoldInfoFakes.closed,
+  capabilities: BifoldCapabilityFakes.unopenedFoldable(),
+  child: const MyApp(),
+);
+```
+
+`.book()`, `.flip()`, `.flat`, `.unopenedFoldable()` and `.unresolved`. That
+last pair are the ones that catch real bugs: a foldable seen only while shut
+knows it folds but not how, and an unresolved profile makes a layout that
+treats `hasFold == false` as a proven "no" visibly flicker.
+
+Omit `capabilities` and the scope infers a coherent set from the fold state,
+so a layout test does not have to restate both.
+
+### Driving the stream
+
+`BifoldScope.fake` covers a fixed state, and pumping a new one covers a
+transition. For the stream itself — ordering, late arrivals, a capability
+resolving after the first frame — use `FakeBifoldPlatform`:
+
+```dart
+final platform = FakeBifoldPlatform();
+BifoldPlatform.instance = platform;
+addTearDown(platform.dispose);
+
+await tester.pumpWidget(const BifoldScope(child: MyApp()));
+platform.emit(FoldInfoFakes.partiallyOpen(viewSize: size));
+await tester.pump();
+```
+
 ## API reference
 
 ### `FoldInfo`
@@ -423,7 +464,9 @@ Individual fakes: `FoldInfoFakes.closed`, `.fullyOpen()`, `.partiallyOpen()`,
 | `verticalSizeClass` | `FoldSizeClass` | as above |
 | `isRegular` | `bool` | both axes regular — what the inner display reports |
 | `verticalBarEdge` | `VerticalBarEdge` | `leading`, `trailing`, `unspecified` |
-| `FoldInfo.unsupported` | `FoldInfo` | the state every non-foldable device reports |
+| `isResolved` | `bool` | whether the platform has answered yet |
+| `FoldInfo.unsupported` | `FoldInfo` | nothing has answered — **not** "no fold" |
+| `FoldInfo.none` | `FoldInfo` | answered: this device has no fold |
 
 ### `FoldRegion`
 
@@ -436,6 +479,25 @@ Individual fakes: `FoldInfoFakes.closed`, `.fullyOpen()`, `.partiallyOpen()`,
 | `isActive` | `bool` | whether the hardware is currently in use |
 | `isSeparating(Size)` | `bool` | whether it actually divides the display |
 | `isHorizontal` | `bool` | whether it runs across rather than down |
+
+### `BifoldCapabilities`
+
+| member | type | meaning |
+|---|---|---|
+| `hasFold` … `hasFoldOcclusion` | `bool` | true only for `supported` |
+| `statusOf(FoldFeature)` | `CapabilityStatus` | `supported`, `unsupported`, `unknown` |
+| `evidenceOf(FoldFeature)` | `CapabilityEvidence` | the status plus its source |
+| `sourceOf(FoldFeature)` | `String?` | the platform signal, for diagnostics |
+| `formFactor` | `FoldFormFactor` | `book`, `flip`, `dualScreen`, `none`, `unknown` |
+| `rearDisplayModes` | `Set<RearDisplayMode>` | `presentation` and/or `transfer` |
+| `isResolved` | `bool` | whether the platform has answered at all |
+| `raw` | `Map<String, Object?>` | the platform payload, for capabilities newer than this package |
+| `BifoldCapabilities.unresolved` | | nothing established |
+| `BifoldCapabilities.none` | | established: no fold support of any kind |
+
+`CapabilityResolver` applies the stickiness and evidence rules across reports.
+It is exported so the behaviour can be tested directly; apps read capabilities
+rather than building them.
 
 ### `ArrangementMeasurement`
 
