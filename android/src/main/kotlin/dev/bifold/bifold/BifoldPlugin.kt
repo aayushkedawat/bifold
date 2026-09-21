@@ -65,6 +65,17 @@ class BifoldPlugin :
   private var sink: EventChannel.EventSink? = null
   private var lastPayload: Map<String, Any?>? = null
 
+  /**
+   * The capability payload that went with [lastPayload].
+   *
+   * Capabilities resolve on their own schedule -- window area information in
+   * particular arrives well after layout -- and on a device sitting still the
+   * fold payload does not change when they do. Deduplicating on the fold
+   * payload alone would swallow that update, and Dart's capability stream,
+   * which rides on the fold stream, would never learn about it.
+   */
+  private var lastCapabilities: Map<String, Any?>? = null
+
   private val mainExecutor = Executor { Handler(Looper.getMainLooper()).post(it) }
 
   private val layoutListener = Consumer<WindowLayoutInfo> { info ->
@@ -246,14 +257,23 @@ class BifoldPlugin :
     stopObserving()
     sink = null
     lastPayload = null
+    lastCapabilities = null
   }
 
-  /** Sends the current reading, unless it is identical to the last one sent. */
+  /**
+   * Sends the current reading, unless nothing at all has changed.
+   *
+   * "Nothing" means neither the fold state nor the capabilities: a capability
+   * settling is a reason to emit even when the device has not moved, because
+   * that is how the change reaches Dart.
+   */
   private fun emit() {
     val sink = sink ?: return
     val payload = currentPayload()
-    if (payload == lastPayload) return
+    val capabilityPayload = currentCapabilities()
+    if (payload == lastPayload && capabilityPayload == lastCapabilities) return
     lastPayload = payload
+    lastCapabilities = capabilityPayload
     sink.success(payload)
   }
 }

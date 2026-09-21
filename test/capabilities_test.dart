@@ -1,5 +1,6 @@
 import 'dart:ui' show Size;
 import 'package:bifold/bifold.dart';
+import 'package:bifold/src/method_channel_bifold.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -209,6 +210,44 @@ void main() {
     });
   });
 
+  group('Bifold.capabilitiesReady', () {
+    tearDown(() {
+      Bifold.debugReset();
+      BifoldPlatform.instance = MethodChannelBifold();
+    });
+
+    test('completes with a snapshot, while capabilities keep improving',
+        () async {
+      // The trap the documentation warns about: the future's value is the
+      // earliest answer, not the best one.
+      final platform = FakeBifoldPlatform(
+        capabilities: BifoldCapabilityFakes.unopenedFoldable(),
+      );
+      BifoldPlatform.instance = platform;
+      addTearDown(platform.dispose);
+
+      final first = await Bifold.capabilitiesReady;
+      expect(first.hasFold, isTrue);
+      expect(first.hasHalfOpenedPosture, isFalse,
+          reason: 'nothing observed yet');
+
+      platform.emitCapabilities(BifoldCapabilityFakes.book());
+      await pumpEventQueue();
+
+      // The future keeps its snapshot; the live getter has moved on.
+      expect(first.hasHalfOpenedPosture, isFalse);
+      expect(Bifold.capabilities.hasHalfOpenedPosture, isTrue);
+    });
+
+    test('a platform without capability support stays unresolved', () async {
+      // Adding methods to BifoldPlatform must not break implementations
+      // written before they existed.
+      BifoldPlatform.instance = _LegacyPlatform();
+      final caps = await Bifold.capabilitiesReady;
+      expect(caps, BifoldCapabilities.unresolved);
+    });
+  });
+
   group('FoldInfo.isResolved', () {
     test('unsupported is unresolved; none is resolved', () {
       expect(FoldInfo.unsupported.isResolved, isFalse);
@@ -225,4 +264,13 @@ void main() {
           reason: 'the platform answered, which is what resolved means');
     });
   });
+}
+
+/// A platform implementation from before capabilities existed.
+class _LegacyPlatform extends BifoldPlatform {
+  @override
+  Future<FoldInfo> getFoldInfo() async => FoldInfo.none;
+
+  @override
+  Stream<FoldInfo> foldInfoStream() => const Stream<FoldInfo>.empty();
 }

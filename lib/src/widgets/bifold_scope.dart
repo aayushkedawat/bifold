@@ -291,17 +291,25 @@ abstract final class Bifold {
   /// before it runs. Safe to call repeatedly — the work happens once.
   static Future<void> initialize() => capabilitiesReady;
 
-  /// Completes once the platform has answered about capabilities.
+  /// Completes once the platform has given its **first** answer.
   ///
   /// For code that must not race the synchronous getter into a false
   /// `hasFold`:
   ///
   /// ```dart
-  /// final capabilities = await Bifold.capabilitiesReady;
-  /// if (capabilities.hasHingeAngle) {
+  /// await Bifold.capabilitiesReady;
+  /// if (Bifold.capabilities.hasHingeAngle) {
   ///   // Worth subscribing to the angle on this device.
   /// }
   /// ```
+  ///
+  /// Note which value that example reads. The future completes with a
+  /// *snapshot* taken at first resolution, and capabilities keep improving
+  /// after it: a statically-known hinge resolves immediately, while posture
+  /// and rear-display support only settle once something has been observed.
+  /// Awaiting this and then using its result would pin the earliest, least
+  /// informed answer. Await it to know the platform has spoken, then read
+  /// [capabilities], or use [capabilitiesStream] to follow every improvement.
   static Future<BifoldCapabilities> get capabilitiesReady {
     return _resolution ??= () async {
       try {
