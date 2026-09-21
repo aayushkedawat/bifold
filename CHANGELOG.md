@@ -56,6 +56,12 @@ which one it is running on.
   rectangle — unlike iOS, where the frame arrives with clearance built in.
 * The capture accessory remains iOS-only. On Android its methods answer rather
   than fail, so shared code can call them unconditionally.
+* The hinge angle is passed through unvalidated on Android. The sensor is not
+  range-checked by the platform, and readings outside 0..180 are delivered as
+  they arrive — 270 was observed reaching Dart as 270°. Clamping without
+  knowing a real device's convention would hide exactly the vendor differences
+  worth characterising, so the raw reading is reported. Prefer `pose` over
+  `hingeAngle` for layout.
 * Verified on the Android emulator only. No physical foldable hardware, on
   either platform.
 

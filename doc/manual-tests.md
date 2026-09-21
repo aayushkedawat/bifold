@@ -193,6 +193,29 @@ sensor, and moving the sensor does not necessarily change the device state. A
 real fold moves both, so set both, or the angle and the pose will disagree in a
 way no physical device would produce.
 
+**The emulator UI only offers three postures**, so its fold control produces
+only 0°, 90° and 180°. That is a limit of the control, not of the sensor: the
+sensor takes any value, and `emu sensor set` reaches it directly. To sweep:
+
+```sh
+for v in $(seq 0 5 180); do
+  adb -s emulator-5556 emu sensor set hinge-angle0 $v
+  sleep 0.2
+done
+```
+
+Verified 2026-09-21 that arbitrary values arrive intact, including
+non-detent ones (7, 23, 61, 113, 137, 166) and fractional ones (0.25, 45.5,
+179.75).
+
+**Nothing validates the range.** Values outside 0..180 are accepted by the
+emulator *and delivered to the app*: setting 270 makes `bifold` report 270°,
+and the platform's own device-state logic independently decided that was
+`fullyOpen`. Negative values and 360 are accepted too. `bifold` passes the
+sensor reading through rather than clamping it, because clamping without
+knowing a real device's convention would hide the very vendor differences a
+quirks table has to be built from. Worth re-checking on hardware.
+
 Screenshots need an explicit display, because a foldable has more than one and
 `screencap` otherwise warns and picks one arbitrarily:
 
@@ -209,7 +232,7 @@ adb -s emulator-5556 exec-out screencap -d <display-id> -p > shot.png
 | A2 | Half-open (state 1), angle 45 | `pose: partiallyOpen`, division **active**, `BifoldSplit` puts the two reader pages side by side |
 | A3 | Closed (state 0), angle 0 | `foldable` **still true**, `pose: unknown`, `display: none`, 0 regions, `compact/regular` on the cover display |
 | A4 | A1 → A3 → A1 | `BifoldScaffold` swaps its NavigationRail for a bottom bar and back; no stale measurements from the previous display |
-| A5 | Sweep the angle 0 → 180 | the hinge gauge tracks continuously; the angle never sticks at a previous reading |
+| A5 | Sweep the angle (see below) | the hinge gauge tracks every value, not just the detents; the angle never sticks at a previous reading |
 | A6 | Rotate while half-open | the division follows the new orientation |
 | A7 | Multi-window / split screen | size classes follow the window, not the display |
 | A8 | Run on a non-foldable AVD | `not foldable`, no regions, **nothing logged to the console** |

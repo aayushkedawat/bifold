@@ -414,6 +414,19 @@ separate channel, injected with `adb emu sensor set hinge-angle0 <degrees>`.
 Forcing a device state does **not** move the sensor, so the two must be set
 together to model a real fold.
 
+The emulator's own fold control exposes only the three device states, hence
+only 0°, 90° and 180°. The sensor itself is continuous: values of 7, 23, 61,
+113, 137 and 166 were injected and read back exactly, as were fractional
+values (0.25, 45.5, 179.75).
+
+**The sensor is not range-checked, and out-of-range readings are delivered.**
+Setting 270 was observed arriving at Dart as 270°, with the platform's own
+device-state logic independently reporting `fullyOpen`. Negative values and 360
+are accepted as well. `HingeReader` converts whatever arrives and does not
+clamp: a clamp chosen without a real device's convention in hand would hide the
+vendor differences the brief expects a quirks table to be built from. This is
+the strongest argument so far for that table being needed.
+
 The AVD also advertises `REAR_DISPLAY_MODE` and `CONCURRENT_INNER_DEFAULT`
 device states, which is the first evidence that Android rear-display work is
 testable here without hardware. Not yet exercised.
