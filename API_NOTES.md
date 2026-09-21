@@ -290,3 +290,140 @@ the app's main engine.
 
 Recorded for reference. `bifold` does not gate on it: symbols are resolved at
 runtime, so the package compiles against older SDKs and still works at 27.1.
+
+---
+
+# Android
+
+Every Android symbol `bifold` calls, verified 2026-09-21 by inspecting the
+artifacts themselves rather than documentation: `javap` over the classes in
+`window-1.2.0.aar` and `window-java-1.2.0.aar` from the local Gradle cache,
+and over `android.jar` for API 36. Behaviour was then checked on a
+`pixel_9_pro_fold` AVD running the `android-37.2` system image.
+
+## Dependency
+
+```
+androidx.window:window:1.2.0
+androidx.window:window-java:1.2.0
+```
+
+Pinned deliberately. Flutter 3.44.4's own Android embedding already declares
+`androidx.window:window-java:1.2.0` — read from
+`flutter_embedding_debug-1.0.0-39c38b759eba9bcf048f203176845d7b1baef159.pom`
+in the Gradle cache — so matching it keeps the plugin from dragging an app
+into a version conflict with the engine. Raising either version means
+repeating that check.
+
+## `androidx.window.layout.FoldingFeature`
+
+```java
+public interface FoldingFeature extends DisplayFeature {
+  boolean isSeparating();
+  FoldingFeature$OcclusionType getOcclusionType();   // NONE | FULL
+  FoldingFeature$Orientation getOrientation();       // VERTICAL | HORIZONTAL
+  FoldingFeature$State getState();                   // FLAT | HALF_OPENED
+}
+// from DisplayFeature:
+public android.graphics.Rect getBounds();
+```
+
+**`State` has exactly two values: `FLAT` and `HALF_OPENED`.** There is no
+closed state, and a shut device reports no folding feature at all. This is the
+single most important fact about the Android side: the absence of a feature
+cannot be distinguished from a non-foldable device by observation alone, which
+is why `pose` reports `unknown` rather than `closed` when nothing is there.
+
+It also confirms that `FoldPose` needs no new cases: `FLAT` and `HALF_OPENED`
+map onto `fullyOpen` and `partiallyOpen`, which iOS already reports.
+
+`bounds` is in **pixels**, relative to the window. Divided by
+`resources.displayMetrics.density` to reach the logical pixels Dart uses.
+
+## `androidx.window.java.layout.WindowInfoTrackerCallbackAdapter`
+
+```java
+public final void addWindowLayoutInfoListener(
+    android.app.Activity, java.util.concurrent.Executor,
+    androidx.core.util.Consumer<WindowLayoutInfo>);
+public final void removeWindowLayoutInfoListener(
+    androidx.core.util.Consumer<WindowLayoutInfo>);
+```
+
+Used in preference to `WindowInfoTracker.windowLayoutInfo()`, which returns a
+`kotlinx.coroutines.flow.Flow` and would put a coroutines dependency in the
+plugin for no gain.
+
+## `androidx.window.layout.WindowMetricsCalculator`
+
+```java
+public static WindowMetricsCalculator getOrCreate();
+public abstract WindowMetrics computeCurrentWindowMetrics(android.app.Activity);
+// WindowMetrics:
+public final android.graphics.Rect getBounds();
+```
+
+The source for size classes, which Android does not report the way UIKit does.
+Read on every payload, never cached: folding, unfolding and multi-window all
+resize the window without necessarily producing a new activity.
+
+## `android.hardware.Sensor`
+
+```java
+public static final int TYPE_HINGE_ANGLE = 36;
+public static final String STRING_TYPE_HINGE_ANGLE = "android.sensor.hinge_angle";
+```
+
+API 30 and later, guarded with `Build.VERSION.SDK_INT >= R`.
+
+**Reports degrees.** Confirmed on the emulator, which registers the sensor as
+`Goldfish hinge sensor0 (in degrees) | type: android.sensor.hinge_angle(36)`.
+`HingeReader` converts to radians with `Math.toRadians` so the channel carries
+the units `FoldInfo.hingeAngle` documents.
+
+## `android.content.pm.PackageManager`
+
+```java
+public static final String FEATURE_SENSOR_HINGE_ANGLE =
+    "android.hardware.sensor.hinge_angle";
+```
+
+The authoritative static signal for "this device has a hinge". It answers on a
+**closed** device, where no folding feature exists — the one case no runtime
+observation covers. Verified present on the `pixel_9_pro_fold` AVD via
+`pm list features`, and verified to keep `isFoldable` true with the device
+shut.
+
+Sufficient, not necessary: a foldable with no hinge angle sensor would report
+false here and still be caught by having seen a folding feature earlier in the
+process.
+
+## Observed emulator behaviour
+
+On `pixel_9_pro_fold`, `android-37.2`, inner display 2076x2152 at 390dpi and
+cover display 1080x2424 at 390dpi:
+
+| Device state | `isFoldable` | `pose` | `display` | regions | size classes |
+|---|---|---|---|---|---|
+| OPENED | true | `fullyOpen` | `inner` | 1, inactive | regular/regular |
+| HALF_OPENED | true | `partiallyOpen` | `inner` | 1, **active** | regular/regular |
+| CLOSED (cover) | true | `unknown` | `none` | 0 | compact/regular |
+
+`adb shell cmd device_state state <n>` changes posture; the hinge angle is a
+separate channel, injected with `adb emu sensor set hinge-angle0 <degrees>`.
+Forcing a device state does **not** move the sensor, so the two must be set
+together to model a real fold.
+
+The AVD also advertises `REAR_DISPLAY_MODE` and `CONCURRENT_INNER_DEFAULT`
+device states, which is the first evidence that Android rear-display work is
+testable here without hardware. Not yet exercised.
+
+### UNVERIFIED
+
+* `FoldingFeature.bounds` is documented as window-relative and is treated as
+  such. On a Flutter activity that does not fill the window — multi-window, or
+  a non-full-screen embedding — the conversion to view coordinates has not been
+  checked.
+* `OcclusionType.FULL` is read but not yet surfaced; no emulator state has been
+  found that produces it.
+* Nothing here has run on physical Android hardware.

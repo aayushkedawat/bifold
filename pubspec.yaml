@@ -48,6 +48,9 @@ flutter:
     platforms:
       ios:
         pluginClass: BifoldPlugin
+      android:
+        package: dev.bifold.bifold
+        pluginClass: BifoldPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
