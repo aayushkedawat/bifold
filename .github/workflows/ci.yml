@@ -57,6 +57,12 @@ jobs:
         run: flutter analyze
         working-directory: example
 
+      # Catches a packaging regression -- a native source left out of the
+      # archive, a malformed pubspec -- before it reaches pub.dev, where a
+      # published version cannot be taken back.
+      - name: Check the package publishes cleanly
+        run: flutter pub publish --dry-run
+
   android:
     name: Build the example for Android
     runs-on: ubuntu-latest

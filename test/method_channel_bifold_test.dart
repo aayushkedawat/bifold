@@ -191,6 +191,44 @@ void main() {
       expect(emitted.single.isFoldable, isTrue);
     });
 
+    test('probes again when a new listener arrives after the last one left',
+        () async {
+      // The stream is cached, so the second BifoldScope in an app's lifetime
+      // re-enters through onListen rather than building a fresh stream. It
+      // has to re-probe and re-subscribe, or it would stay silent forever.
+      var probes = 0;
+      messenger.setMockMethodCallHandler(platform.methodChannel, (call) async {
+        probes++;
+        return <Object?, Object?>{'version': 1, 'isFoldable': false};
+      });
+
+      final first = <FoldInfo>[];
+      final firstSub = platform.foldInfoStream().listen(first.add);
+      await pumpEventQueue();
+      await _emit(messenger, <Object?, Object?>{
+        'version': 1,
+        'isFoldable': true,
+      });
+      expect(first, hasLength(1));
+      expect(probes, 1);
+
+      await firstSub.cancel();
+      await pumpEventQueue();
+
+      final second = <FoldInfo>[];
+      final secondSub = platform.foldInfoStream().listen(second.add);
+      addTearDown(secondSub.cancel);
+      await pumpEventQueue();
+      await _emit(messenger, <Object?, Object?>{
+        'version': 1,
+        'isFoldable': true,
+      });
+
+      expect(second, hasLength(1),
+          reason: 'the stream went silent on relisten');
+      expect(probes, 2);
+    });
+
     test('returns the same broadcast stream to every caller', () {
       // Several BifoldScopes must not each open a native subscription.
       expect(

@@ -418,6 +418,11 @@ The device itself has not shipped, so nothing here has run on physical
 hardware. [`doc/manual-tests.md`](doc/manual-tests.md) tracks what has been
 checked on the simulator and what has not.
 
+The other half of the promise — that a platform with no fold support reports
+`FoldInfo.unsupported` and stays quiet — is verified too: the example runs on
+an Android emulator, where this package has no native implementation at all,
+reporting no fold throughout and logging nothing.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
