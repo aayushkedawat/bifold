@@ -20,7 +20,9 @@ void main() {
     final dump = await channel.invokeMethod<String>('debugDescribeNativeApi');
 
     // ignore: avoid_print
-    print('\n>>>>>>>>>> BIFOLD PROBE START\n$dump\n<<<<<<<<<< BIFOLD PROBE END\n');
+    print(
+      '\n>>>>>>>>>> BIFOLD PROBE START\n$dump\n<<<<<<<<<< BIFOLD PROBE END\n',
+    );
     expect(dump, isNotNull);
   });
 }

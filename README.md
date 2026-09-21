@@ -1,6 +1,7 @@
 # bifold
 
 [![pub package](https://img.shields.io/pub/v/bifold.svg)](https://pub.dev/packages/bifold)
+[![CI](https://github.com/aayushkedawat/bifold/actions/workflows/ci.yml/badge.svg)](https://github.com/aayushkedawat/bifold/actions/workflows/ci.yml)
 [![pub points](https://img.shields.io/pub/points/bifold)](https://pub.dev/packages/bifold/score)
 [![likes](https://img.shields.io/pub/likes/bifold)](https://pub.dev/packages/bifold/score)
 [![platform](https://img.shields.io/badge/platform-iOS-lightgrey.svg)](https://pub.dev/packages/bifold)

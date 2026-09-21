@@ -29,9 +29,7 @@ void main() {
   testWidgets('the fold stream emits a first value promptly', (tester) async {
     // The native side emits immediately on listen rather than waiting for the
     // first change, so an app never sits on an empty stream.
-    final info = await Bifold.stream.first.timeout(
-      const Duration(seconds: 5),
-    );
+    final info = await Bifold.stream.first.timeout(const Duration(seconds: 5));
     expect(info, isNotNull);
   });
 

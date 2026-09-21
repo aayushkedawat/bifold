@@ -12,8 +12,9 @@ import 'package:integration_test/integration_test.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('capture accessory registers on the live view controller',
-      (tester) async {
+  testWidgets('capture accessory registers on the live view controller', (
+    tester,
+  ) async {
     final supported = await BifoldCaptureAccessory.isSupported;
     final registered = supported
         ? await BifoldCaptureAccessory.register(
