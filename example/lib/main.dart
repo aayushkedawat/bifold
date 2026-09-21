@@ -1,6 +1,8 @@
 import 'package:bifold/bifold.dart';
 import 'package:flutter/material.dart';
 
+import 'pages/capabilities_page.dart';
+import 'pages/downstream_page.dart';
 import 'pages/gallery_page.dart';
 import 'pages/inspector_page.dart';
 import 'pages/reader_page.dart';
@@ -89,6 +91,8 @@ class _HomePageState extends State<HomePage> {
     _Demo('Gallery', Icons.grid_view_outlined, GalleryPage()),
     _Demo('Studio', Icons.videocam_outlined, StudioPage()),
     _Demo('Inspector', Icons.science_outlined, InspectorPage()),
+    _Demo('Can do', Icons.checklist_outlined, CapabilitiesPage()),
+    _Demo('Apps', Icons.apps_outlined, DownstreamPage()),
   ];
 
   @override
