@@ -299,6 +299,7 @@ class FoldInfo {
     this.horizontalSizeClass = FoldSizeClass.unspecified,
     this.verticalSizeClass = FoldSizeClass.unspecified,
     this.verticalBarEdge = VerticalBarEdge.unspecified,
+    this.isResolved = false,
   });
 
   /// The state reported on every device and platform without fold support.
@@ -313,6 +314,20 @@ class FoldInfo {
     pose: FoldPose.unknown,
     regions: <FoldRegion>[],
     hingeAngle: null,
+  );
+
+  /// Established: this device reports no fold.
+  ///
+  /// Identical to [unsupported] except that [isResolved] is true. The
+  /// difference matters at startup: [unsupported] means "nothing has answered
+  /// yet", this means "the platform answered, and there is no fold".
+  static const FoldInfo none = FoldInfo(
+    isFoldable: false,
+    display: FoldDisplay.none,
+    pose: FoldPose.unknown,
+    regions: <FoldRegion>[],
+    hingeAngle: null,
+    isResolved: true,
   );
 
   /// Decodes fold state from a platform channel map.
@@ -349,6 +364,10 @@ class FoldInfo {
       verticalBarEdge: VerticalBarEdge.fromName(
         map['verticalBarEdge'] as String?,
       ),
+      // A payload arriving at all means the platform answered. Older native
+      // builds that do not send the key still resolve, because reaching this
+      // point required a reply.
+      isResolved: map['isResolved'] as bool? ?? true,
     );
   }
 
@@ -409,6 +428,17 @@ class FoldInfo {
   /// Which edge the system prefers for its vertical bar.
   final VerticalBarEdge verticalBarEdge;
 
+  /// Whether the platform has actually answered yet.
+  ///
+  /// False on [FoldInfo.unsupported], which is what a `BifoldScope` reports
+  /// before the first update arrives. While this is false, [isFoldable] being
+  /// false means "not known yet", not "proven not foldable" — so a layout
+  /// that must not flash the wrong way at startup should wait for this rather
+  /// than branch on [isFoldable] immediately.
+  ///
+  /// True on [FoldInfo.none] and on every real platform report.
+  final bool isResolved;
+
   /// Whether both size classes are regular, which the inner display reports.
   bool get isRegular =>
       horizontalSizeClass == FoldSizeClass.regular &&
@@ -442,6 +472,7 @@ class FoldInfo {
     FoldSizeClass? horizontalSizeClass,
     FoldSizeClass? verticalSizeClass,
     VerticalBarEdge? verticalBarEdge,
+    bool? isResolved,
     bool clearHingeAngle = false,
   }) =>
       FoldInfo(
@@ -453,6 +484,7 @@ class FoldInfo {
         horizontalSizeClass: horizontalSizeClass ?? this.horizontalSizeClass,
         verticalSizeClass: verticalSizeClass ?? this.verticalSizeClass,
         verticalBarEdge: verticalBarEdge ?? this.verticalBarEdge,
+        isResolved: isResolved ?? this.isResolved,
       );
 
   @override
@@ -466,6 +498,7 @@ class FoldInfo {
           other.horizontalSizeClass == horizontalSizeClass &&
           other.verticalSizeClass == verticalSizeClass &&
           other.verticalBarEdge == verticalBarEdge &&
+          other.isResolved == isResolved &&
           listEquals(other.regions, regions);
 
   @override
@@ -477,6 +510,7 @@ class FoldInfo {
         horizontalSizeClass,
         verticalSizeClass,
         verticalBarEdge,
+        isResolved,
         Object.hashAll(regions),
       );
 

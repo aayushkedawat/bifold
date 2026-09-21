@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'capabilities.dart';
 import 'method_channel_bifold.dart';
 import 'models.dart';
 
@@ -51,6 +52,23 @@ abstract class BifoldPlatform extends PlatformInterface {
     throw UnimplementedError(
       'debugDescribeNativeApi() has not been implemented.',
     );
+  }
+
+  /// Reads what this device can do, once.
+  ///
+  /// Returns [BifoldCapabilities.none] on platforms with no implementation.
+  /// Capabilities can improve as the platform reports more, so prefer
+  /// [capabilitiesStream] where that matters.
+  Future<BifoldCapabilities> getCapabilities() {
+    throw UnimplementedError('getCapabilities() has not been implemented.');
+  }
+
+  /// Emits capabilities as they are established.
+  ///
+  /// Emits on listen, then whenever something new is learned. A capability
+  /// never moves from supported back to unsupported.
+  Stream<BifoldCapabilities> capabilitiesStream() {
+    throw UnimplementedError('capabilitiesStream() has not been implemented.');
   }
 
   /// Emits the fold state whenever it changes.

@@ -215,11 +215,16 @@ void main() {
       expect(info.division, isNotNull);
     });
 
-    test('decodes an empty payload to the unsupported state', () {
-      expect(
-        FoldInfo.fromMap(const <Object?, Object?>{}),
-        FoldInfo.unsupported,
-      );
+    test('decodes an empty payload to a resolved no-fold state', () {
+      // An empty payload still means the platform answered, so this is
+      // FoldInfo.none rather than FoldInfo.unsupported. The two carry the same
+      // fields and differ only in isResolved, which is the whole point: one
+      // says "no fold", the other says "nothing has told me yet".
+      final info = FoldInfo.fromMap(const <Object?, Object?>{});
+      expect(info, FoldInfo.none);
+      expect(info.isResolved, isTrue);
+      expect(info, isNot(FoldInfo.unsupported));
+      expect(info.isFoldable, isFalse);
     });
 
     test('survives a payload from a newer native build', () {

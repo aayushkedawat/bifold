@@ -38,6 +38,13 @@ final class FoldReader {
   /// being inferred, and so that a hinge update can drive the stream directly.
   let hinge = HingeReader()
 
+  /// Whether a division region has ever been reported to this process.
+  ///
+  /// Sticky on purpose. A flat or shut device reports no division, and a
+  /// capability that came and went with the pose would be describing the pose
+  /// rather than the device.
+  private(set) var sawDivision = false
+
   // MARK: - Verified symbols
 
   private enum Symbol {
@@ -290,6 +297,9 @@ final class FoldReader {
         guard let object = region as? NSObject,
           let encoded = encode(region: object, kind: name)
         else { continue }
+        if name == "division" {
+          sawDivision = true
+        }
         results.append(encoded)
       }
     }

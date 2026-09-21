@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show Rect, Size;
 
 import 'package:flutter/painting.dart' show EdgeInsets;
 
+import 'bifold_platform_interface.dart';
+import 'capabilities.dart';
 import 'models.dart';
 
 /// Ready-made [FoldInfo] values for tests and previews.
@@ -188,4 +191,185 @@ abstract final class FoldInfoFakes {
         margins: EdgeInsets.zero,
         isActive: isActive,
       );
+}
+
+/// Ready-made [BifoldCapabilities] for tests and previews.
+///
+/// Named after device *shapes*, never after products: a profile models what a
+/// class of hardware can do, and pinning a brand name to it would promise a
+/// fidelity these values do not have.
+abstract final class BifoldCapabilityFakes {
+  static CapabilityEvidence _yes(String source) =>
+      CapabilityEvidence(status: CapabilityStatus.supported, source: source);
+
+  static CapabilityEvidence _no(String source) =>
+      CapabilityEvidence(status: CapabilityStatus.unsupported, source: source);
+
+  static const CapabilityEvidence _dunno = CapabilityEvidence.unknown;
+
+  static BifoldCapabilities _build({
+    required Map<FoldFeature, CapabilityEvidence> evidence,
+    required FoldFormFactor formFactor,
+    Set<RearDisplayMode> rearDisplayModes = const <RearDisplayMode>{},
+  }) =>
+      BifoldCapabilities(
+        evidence: Map<FoldFeature,
+            CapabilityEvidence>.unmodifiable(<FoldFeature, CapabilityEvidence>{
+          for (final FoldFeature feature in FoldFeature.values)
+            feature: evidence[feature] ?? _dunno,
+        }),
+        formFactor: formFactor,
+        rearDisplayModes: Set<RearDisplayMode>.unmodifiable(rearDisplayModes),
+        isResolved: true,
+      );
+
+  /// A device with no fold of any kind.
+  ///
+  /// The same value as [BifoldCapabilities.none], named for symmetry with the
+  /// other profiles so a capability matrix reads consistently.
+  static const BifoldCapabilities flat = BifoldCapabilities.none;
+
+  /// A book-style foldable: a vertical hinge opening into a larger display.
+  static BifoldCapabilities book({bool rearDisplay = false}) => _build(
+        formFactor: FoldFormFactor.book,
+        rearDisplayModes: rearDisplay
+            ? const <RearDisplayMode>{RearDisplayMode.presentation}
+            : const <RearDisplayMode>{},
+        evidence: <FoldFeature, CapabilityEvidence>{
+          FoldFeature.fold: _yes('fake.book'),
+          FoldFeature.hingeAngle: _yes('fake.book'),
+          FoldFeature.halfOpenedPosture: _yes('fake.book'),
+          FoldFeature.reservedRegions: _yes('fake.book'),
+          FoldFeature.separatingFold: _yes('fake.book'),
+          FoldFeature.foldOcclusion: _no('fake.book'),
+          FoldFeature.coverDisplay: _yes('fake.book'),
+          FoldFeature.rearDisplay:
+              rearDisplay ? _yes('fake.book') : _no('fake.book'),
+        },
+      );
+
+  /// A flip-style foldable: a horizontal hinge closing into a smaller square.
+  static BifoldCapabilities flip() => _build(
+        formFactor: FoldFormFactor.flip,
+        evidence: <FoldFeature, CapabilityEvidence>{
+          FoldFeature.fold: _yes('fake.flip'),
+          FoldFeature.hingeAngle: _yes('fake.flip'),
+          FoldFeature.halfOpenedPosture: _yes('fake.flip'),
+          FoldFeature.reservedRegions: _yes('fake.flip'),
+          FoldFeature.separatingFold: _yes('fake.flip'),
+          FoldFeature.foldOcclusion: _no('fake.flip'),
+          FoldFeature.coverDisplay: _yes('fake.flip'),
+          FoldFeature.rearDisplay: _no('fake.flip'),
+        },
+      );
+
+  /// A foldable seen only while shut, so almost nothing is established.
+  ///
+  /// The case that catches code treating a false `hasX` as a proven "no":
+  /// [BifoldCapabilities.hasFold] is true from a static signal, while the
+  /// posture capability is still [CapabilityStatus.unknown] because nothing
+  /// has been observed.
+  static BifoldCapabilities unopenedFoldable() => _build(
+        formFactor: FoldFormFactor.unknown,
+        evidence: <FoldFeature, CapabilityEvidence>{
+          FoldFeature.fold: _yes('fake.static_device_feature'),
+          FoldFeature.hingeAngle: _yes('fake.static_device_feature'),
+        },
+      );
+
+  /// Nothing established at all.
+  static const BifoldCapabilities unresolved = BifoldCapabilities.unresolved;
+
+  /// The capabilities a given fold state would require to be possible.
+  ///
+  /// Lets `BifoldScope.fake` accept a [FoldInfo] alone and still supply
+  /// coherent capabilities, so a test exercising layout does not have to
+  /// restate what the device can do. Observation only ever adds: a state that
+  /// shows no fold yields [BifoldCapabilities.unresolved] rather than a claim
+  /// that the device cannot fold.
+  static BifoldCapabilities impliedBy(FoldInfo info) {
+    if (!info.isFoldable) {
+      return info.isResolved
+          ? BifoldCapabilities.none
+          : BifoldCapabilities.unresolved;
+    }
+    final Map<FoldFeature, CapabilityEvidence> evidence =
+        <FoldFeature, CapabilityEvidence>{
+      FoldFeature.fold: _yes('fake.implied_by_state'),
+      if (info.hingeAngle != null)
+        FoldFeature.hingeAngle: _yes('fake.implied_by_state'),
+      if (info.pose == FoldPose.partiallyOpen)
+        FoldFeature.halfOpenedPosture: _yes('fake.implied_by_state'),
+      if (info.regions.isNotEmpty)
+        FoldFeature.reservedRegions: _yes('fake.implied_by_state'),
+      if (info.display == FoldDisplay.outer)
+        FoldFeature.coverDisplay: _yes('fake.implied_by_state'),
+    };
+    return _build(evidence: evidence, formFactor: FoldFormFactor.unknown);
+  }
+}
+
+/// A [BifoldPlatform] whose fold state and capabilities a test drives by hand.
+///
+/// `BifoldScope.fake` covers a fixed state, and pumping a new one covers a
+/// transition. This covers what neither can: the *stream* itself — ordering,
+/// late arrivals, a capability resolving after the first frame.
+///
+/// ```dart
+/// final platform = FakeBifoldPlatform();
+/// BifoldPlatform.instance = platform;
+/// addTearDown(platform.dispose);
+///
+/// await tester.pumpWidget(const BifoldScope(child: MyApp()));
+/// platform.emit(FoldInfoFakes.partiallyOpen(viewSize: size));
+/// await tester.pump();
+/// ```
+class FakeBifoldPlatform extends BifoldPlatform {
+  /// Creates a fake platform reporting [initial] until told otherwise.
+  FakeBifoldPlatform({
+    FoldInfo initial = FoldInfo.unsupported,
+    BifoldCapabilities capabilities = BifoldCapabilities.unresolved,
+  })  : _info = initial,
+        _capabilities = capabilities;
+
+  final StreamController<FoldInfo> _foldEvents =
+      StreamController<FoldInfo>.broadcast();
+  final StreamController<BifoldCapabilities> _capabilityEvents =
+      StreamController<BifoldCapabilities>.broadcast();
+
+  FoldInfo _info;
+  BifoldCapabilities _capabilities;
+
+  /// Pushes a new fold state to every listener.
+  void emit(FoldInfo info) {
+    _info = info;
+    _foldEvents.add(info);
+  }
+
+  /// Pushes new capabilities to every listener.
+  void emitCapabilities(BifoldCapabilities capabilities) {
+    _capabilities = capabilities;
+    _capabilityEvents.add(capabilities);
+  }
+
+  /// Closes both streams. Call from `addTearDown`.
+  Future<void> dispose() async {
+    await _foldEvents.close();
+    await _capabilityEvents.close();
+  }
+
+  @override
+  Future<FoldInfo> getFoldInfo() async => _info;
+
+  @override
+  Stream<FoldInfo> foldInfoStream() => _foldEvents.stream;
+
+  @override
+  Future<BifoldCapabilities> getCapabilities() async => _capabilities;
+
+  @override
+  Stream<BifoldCapabilities> capabilitiesStream() => _capabilityEvents.stream;
+
+  @override
+  Future<String?> debugDescribeNativeApi() async => 'FakeBifoldPlatform';
 }

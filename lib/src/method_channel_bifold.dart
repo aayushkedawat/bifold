@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'bifold_platform_interface.dart';
+import 'capabilities.dart';
 import 'models.dart';
 
 /// The name of the method channel used for one-shot queries.
@@ -34,6 +35,10 @@ class MethodChannelBifold extends BifoldPlatform {
   );
 
   Stream<FoldInfo>? _stream;
+  Stream<BifoldCapabilities>? _capabilities;
+
+  /// Applies the stickiness and evidence rules across every report.
+  final CapabilityResolver _resolver = CapabilityResolver();
 
   @override
   Future<FoldInfo> getFoldInfo() async {
@@ -60,6 +65,44 @@ class MethodChannelBifold extends BifoldPlatform {
       );
       return FoldInfo.unsupported;
     }
+  }
+
+  @override
+  Future<BifoldCapabilities> getCapabilities() async {
+    try {
+      final Map<Object?, Object?>? payload = await methodChannel
+          .invokeMapMethod<Object?, Object?>('getCapabilities');
+      if (payload == null) {
+        return _resolver.absorb(BifoldCapabilities.none);
+      }
+      return _resolver.absorb(BifoldCapabilities.fromMap(payload));
+    } on MissingPluginException {
+      // No native side. That is an answer, not a failure: this platform has
+      // no fold support of any kind.
+      return _resolver.absorb(BifoldCapabilities.none);
+    } on PlatformException catch (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'bifold',
+          context: ErrorDescription('reading fold capabilities'),
+        ),
+      );
+      // The plugin is there and unhappy. Claiming "no fold support" would be
+      // a stronger statement than the evidence allows.
+      return _resolver.current;
+    }
+  }
+
+  @override
+  Stream<BifoldCapabilities> capabilitiesStream() {
+    // Capabilities are derived from the same native reports the fold stream
+    // carries, so this rides along rather than opening a second subscription.
+    return _capabilities ??= foldInfoStream()
+        .asyncMap((FoldInfo _) => getCapabilities())
+        .distinct()
+        .asBroadcastStream();
   }
 
   @override

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import '../bifold_platform_interface.dart';
+import '../capabilities.dart';
 import '../fakes.dart';
 import '../models.dart';
 
@@ -27,7 +28,9 @@ import '../models.dart';
 /// platform channel.
 class BifoldScope extends StatefulWidget {
   /// Creates a scope that listens to the platform for fold state.
-  const BifoldScope({required this.child, super.key}) : _fakeInfo = null;
+  const BifoldScope({required this.child, super.key})
+      : _fakeInfo = null,
+        _fakeCapabilities = null;
 
   /// Creates a scope that reports a fixed [info] and never touches the
   /// platform.
@@ -50,13 +53,16 @@ class BifoldScope extends StatefulWidget {
   const BifoldScope.fake({
     required FoldInfo info,
     required this.child,
+    BifoldCapabilities? capabilities,
     super.key,
-  }) : _fakeInfo = info;
+  })  : _fakeInfo = info,
+        _fakeCapabilities = capabilities;
 
   /// The widget below this scope.
   final Widget child;
 
   final FoldInfo? _fakeInfo;
+  final BifoldCapabilities? _fakeCapabilities;
 
   @override
   State<BifoldScope> createState() => _BifoldScopeState();
@@ -64,7 +70,9 @@ class BifoldScope extends StatefulWidget {
 
 class _BifoldScopeState extends State<BifoldScope> {
   FoldInfo _info = FoldInfo.unsupported;
+  BifoldCapabilities _capabilities = BifoldCapabilities.unresolved;
   StreamSubscription<FoldInfo>? _subscription;
+  StreamSubscription<BifoldCapabilities>? _capabilitySubscription;
 
   /// Whether the stream has delivered anything yet.
   ///
@@ -91,7 +99,13 @@ class _BifoldScopeState extends State<BifoldScope> {
     if (fake != null) {
       _subscription?.cancel();
       _subscription = null;
+      _capabilitySubscription?.cancel();
+      _capabilitySubscription = null;
       _info = fake;
+      // A fake fold state with no stated capabilities implies the capabilities
+      // that state requires, so a test does not have to spell out both.
+      _capabilities =
+          widget._fakeCapabilities ?? BifoldCapabilityFakes.impliedBy(fake);
       return;
     }
 
@@ -115,6 +129,25 @@ class _BifoldScopeState extends State<BifoldScope> {
       }),
     );
 
+    unawaited(
+      Bifold.initialize().then((_) {
+        if (mounted) {
+          _updateCapabilities(Bifold.capabilities);
+        }
+      }),
+    );
+    try {
+      _capabilitySubscription =
+          BifoldPlatform.instance.capabilitiesStream().listen(
+                _updateCapabilities,
+                onError: (Object _) {},
+              );
+    } on UnimplementedError {
+      // A BifoldPlatform written before capabilities existed. Fold state still
+      // works; capabilities stay unresolved, which is the honest answer. This
+      // must not abort the rest of binding.
+    }
+
     _subscription = BifoldPlatform.instance.foldInfoStream().listen(
       (FoldInfo info) {
         _receivedFromStream = true;
@@ -134,15 +167,44 @@ class _BifoldScopeState extends State<BifoldScope> {
     setState(() => _info = info);
   }
 
+  void _updateCapabilities(BifoldCapabilities capabilities) {
+    if (!mounted || capabilities == _capabilities) {
+      return;
+    }
+    setState(() => _capabilities = capabilities);
+  }
+
   @override
   void dispose() {
     _subscription?.cancel();
+    _capabilitySubscription?.cancel();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _BifoldModel(info: _info, child: widget.child);
+  Widget build(BuildContext context) => _BifoldCapabilityModel(
+        capabilities: _capabilities,
+        child: _BifoldModel(info: _info, child: widget.child),
+      );
+}
+
+/// Carries capabilities separately from fold state.
+///
+/// Two inherited widgets rather than one, because the two change at very
+/// different rates: fold state moves with the hinge, capabilities settle once
+/// and then stay. Sharing a model would rebuild every fold-aware widget each
+/// time a capability resolved.
+class _BifoldCapabilityModel extends InheritedWidget {
+  const _BifoldCapabilityModel({
+    required this.capabilities,
+    required super.child,
+  });
+
+  final BifoldCapabilities capabilities;
+
+  @override
+  bool updateShouldNotify(_BifoldCapabilityModel oldWidget) =>
+      oldWidget.capabilities != capabilities;
 }
 
 class _BifoldModel extends InheritedWidget {
@@ -208,6 +270,120 @@ abstract final class Bifold {
   /// logging device capability at startup.
   static Future<FoldInfo> get current => BifoldPlatform.instance.getFoldInfo();
 
+  static BifoldCapabilities _capabilities = BifoldCapabilities.unresolved;
+  static Future<BifoldCapabilities>? _resolution;
+  static StreamSubscription<BifoldCapabilities>? _capabilitySubscription;
+
+  /// What this device can do, right now, synchronously.
+  ///
+  /// Returns [BifoldCapabilities.unresolved] until the platform has answered,
+  /// which means **a false `hasFold` here can mean "not known yet"**. Check
+  /// [BifoldCapabilities.isResolved], await [capabilitiesReady], or use
+  /// [capabilitiesOf] in a widget, which rebuilds when the answer arrives.
+  ///
+  /// Never throws, on any platform.
+  static BifoldCapabilities get capabilities => _capabilities;
+
+  /// Establishes capabilities, and keeps them up to date.
+  ///
+  /// Optional: `BifoldScope` calls it, and [capabilitiesOf] does not need it.
+  /// Call it directly when non-widget code wants [capabilities] populated
+  /// before it runs. Safe to call repeatedly — the work happens once.
+  static Future<void> initialize() => capabilitiesReady;
+
+  /// Completes once the platform has answered about capabilities.
+  ///
+  /// For code that must not race the synchronous getter into a false
+  /// `hasFold`:
+  ///
+  /// ```dart
+  /// final capabilities = await Bifold.capabilitiesReady;
+  /// if (capabilities.hasHingeAngle) {
+  ///   // Worth subscribing to the angle on this device.
+  /// }
+  /// ```
+  static Future<BifoldCapabilities> get capabilitiesReady {
+    return _resolution ??= () async {
+      try {
+        final BifoldCapabilities resolved =
+            await BifoldPlatform.instance.getCapabilities();
+        _capabilities = resolved;
+        // Keep following: a capability can move from unknown to supported when
+        // the platform finally reports something, long after the first answer.
+        _capabilitySubscription ??=
+            BifoldPlatform.instance.capabilitiesStream().listen(
+                  (BifoldCapabilities latest) => _capabilities = latest,
+                  onError: (Object _) {},
+                );
+        return resolved;
+      } on UnimplementedError {
+        // A BifoldPlatform predating capabilities. Reporting unresolved is
+        // truthful: that implementation cannot say either way.
+        return _capabilities;
+      }
+    }();
+  }
+
+  /// Capabilities as a stream, without a `BifoldScope`.
+  ///
+  /// Emits whenever something new is established. A capability never moves
+  /// from supported back to unsupported.
+  static Stream<BifoldCapabilities> get capabilitiesStream =>
+      BifoldPlatform.instance.capabilitiesStream();
+
+  /// What this device can do, rebuilding the caller when that changes.
+  ///
+  /// The widget-side accessor, and the one to prefer: capabilities can improve
+  /// after the first frame, and a synchronous read cannot rebuild anything
+  /// when they do.
+  ///
+  /// Returns [BifoldCapabilities.unresolved] when there is no `BifoldScope`
+  /// ancestor rather than throwing, because "not established" is exactly what
+  /// that situation is.
+  static BifoldCapabilities capabilitiesOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_BifoldCapabilityModel>()
+          ?.capabilities ??
+      BifoldCapabilities.unresolved;
+
+  /// Everything known about this device, as text to paste into a bug report.
+  ///
+  /// Capabilities with the platform signal behind each one, the current fold
+  /// state, and what the running OS actually exposes. Intended to be shown to
+  /// a user and copied by them.
+  ///
+  /// **Nothing is transmitted.** This builds a string and returns it; sending
+  /// it anywhere is the app's decision. It carries no identifier beyond what
+  /// the OS reports about the model.
+  static Future<String> diagnosticReport() async {
+    final BifoldCapabilities capabilities = await capabilitiesReady;
+    final FoldInfo info = await current;
+    final String? native =
+        await BifoldPlatform.instance.debugDescribeNativeApi();
+
+    final StringBuffer buffer = StringBuffer('bifold diagnostic report\n');
+    buffer.writeln('\nCapabilities (resolved: ${capabilities.isResolved})');
+    buffer.writeln('  formFactor: ${capabilities.formFactor.name}');
+    for (final FoldFeature feature in FoldFeature.values) {
+      final CapabilityEvidence evidence = capabilities.evidenceOf(feature);
+      buffer.writeln(
+        '  ${feature.name}: ${evidence.status.name}'
+        '${evidence.source == null ? '' : '  <- ${evidence.source}'}',
+      );
+    }
+    if (capabilities.rearDisplayModes.isNotEmpty) {
+      buffer.writeln(
+        '  rearDisplayModes: '
+        '${capabilities.rearDisplayModes.map((RearDisplayMode m) => m.name).join(', ')}',
+      );
+    }
+    buffer.writeln('\nCurrent state');
+    buffer.writeln('  $info');
+    buffer.writeln('\nPlatform');
+    buffer.writeln(native ?? '  no native implementation on this platform');
+    return buffer.toString();
+  }
+
   /// A description of the fold APIs the running OS actually exposes.
   ///
   /// Reports the real selector names, type encodings and class members that
@@ -217,8 +393,21 @@ abstract final class Bifold {
   ///
   /// Returns null on platforms with no native implementation. Reads only —
   /// nothing is invoked with side effects and nothing is mutated.
+  @Deprecated(
+    'Use Bifold.diagnosticReport(), which includes this along with '
+    'capabilities and current state. Will be removed in 0.4.0.',
+  )
   static Future<String?> debugDescribeNativeApi() =>
       BifoldPlatform.instance.debugDescribeNativeApi();
+
+  /// Forgets resolved capabilities. Tests only.
+  @visibleForTesting
+  static void debugReset() {
+    _capabilities = BifoldCapabilities.unresolved;
+    _resolution = null;
+    _capabilitySubscription?.cancel();
+    _capabilitySubscription = null;
+  }
 
   /// The fold state stream, without a [BifoldScope].
   ///

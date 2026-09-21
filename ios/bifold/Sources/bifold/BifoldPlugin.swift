@@ -118,6 +118,13 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
       // is why the stream is the documented way to track fold state.
       foldReader.hinge.attach(to: view, onChange: {})
       result(foldReader.read(from: view, version: payloadVersion))
+    case "getCapabilities":
+      result(
+        CapabilityReader.payload(
+          sawHinge: foldReader.hinge.sawHinge,
+          sawDivision: foldReader.sawDivision
+        )
+      )
     case "isSupported":
       result(FoldReader.isSupported)
     case "debugDescribeNativeApi":

@@ -1,11 +1,17 @@
 package dev.bifold.bifold
 
 import android.app.Activity
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.Surface
 import android.view.View
 import androidx.core.util.Consumer
+import androidx.window.area.WindowAreaController
+import androidx.window.area.WindowAreaInfo
+import androidx.window.java.area.WindowAreaControllerCallbackAdapter
 import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter
+import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowLayoutInfo
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -48,6 +54,14 @@ class BifoldPlugin :
    */
   private var reader: FoldReader? = null
 
+  /**
+   * Also outlives the activity: capabilities are about the device, and a fold
+   * gesture must never look like the device losing one.
+   */
+  private var capabilities: CapabilityReader? = null
+
+  private var areaController: WindowAreaControllerCallbackAdapter? = null
+
   private var sink: EventChannel.EventSink? = null
   private var lastPayload: Map<String, Any?>? = null
 
@@ -55,11 +69,20 @@ class BifoldPlugin :
 
   private val layoutListener = Consumer<WindowLayoutInfo> { info ->
     reader?.update(info)
+    capabilities?.observeFolds(
+      info.displayFeatures.filterIsInstance<FoldingFeature>(),
+    )
+    emit()
+  }
+
+  private val areaListener = Consumer<List<WindowAreaInfo>> { areas ->
+    capabilities?.observeWindowAreas(areas)
     emit()
   }
 
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     reader = FoldReader(binding.applicationContext)
+    capabilities = CapabilityReader(binding.applicationContext)
     methodChannel = MethodChannel(binding.binaryMessenger, "dev.bifold/methods")
     methodChannel.setMethodCallHandler(this)
     eventChannel = EventChannel(binding.binaryMessenger, "dev.bifold/fold_info")
@@ -70,6 +93,7 @@ class BifoldPlugin :
     methodChannel.setMethodCallHandler(null)
     eventChannel.setStreamHandler(null)
     reader = null
+    capabilities = null
   }
 
   /**
@@ -114,6 +138,7 @@ class BifoldPlugin :
     this.activity = activity
     reader?.attach(activity)
     tracker = WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(activity))
+    areaController = WindowAreaControllerCallbackAdapter(WindowAreaController.getOrCreate())
     hinge = HingeReader(activity) { radians ->
       reader?.update(radians)
       emit()
@@ -128,6 +153,7 @@ class BifoldPlugin :
     reader?.detach()
     activity = null
     tracker = null
+    areaController = null
     hinge = null
   }
 
@@ -135,12 +161,14 @@ class BifoldPlugin :
     val activity = activity ?: return
     tracker?.addWindowLayoutInfoListener(activity, mainExecutor, layoutListener)
     activity.window?.decorView?.addOnLayoutChangeListener(layoutPassListener)
+    areaController?.addWindowAreaInfoListListener(mainExecutor, areaListener)
     hinge?.start()
   }
 
   private fun stopObserving() {
     tracker?.removeWindowLayoutInfoListener(layoutListener)
     activity?.window?.decorView?.removeOnLayoutChangeListener(layoutPassListener)
+    areaController?.removeWindowAreaInfoListListener(areaListener)
     hinge?.stop()
   }
 
@@ -149,6 +177,7 @@ class BifoldPlugin :
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
     when (call.method) {
       "getFoldInfo" -> result.success(currentPayload())
+      "getCapabilities" -> result.success(currentCapabilities())
       "debugDescribeNativeApi" -> result.success(describeNativeApi())
       // The capture accessory is iOS-only today. Answering rather than
       // failing keeps BifoldCaptureAccessory usable from shared code.
@@ -163,6 +192,32 @@ class BifoldPlugin :
   private fun currentPayload(): Map<String, Any?> =
     reader?.payload(hingeSensorPresent = hinge?.isPresent == true)
       ?: FoldReader.unsupportedPayload()
+
+  private fun currentCapabilities(): Map<String, Any?> =
+    capabilities?.payload(
+      hingeSensorPresent = hinge?.isPresent == true,
+      rotation = displayRotation(),
+    )
+      ?: mapOf(
+        "isResolved" to false,
+        "formFactor" to "unknown",
+        "rearDisplayModes" to emptyList<String>(),
+        "features" to emptyMap<String, Any?>(),
+      )
+
+  /**
+   * How the screen is currently turned, so a hinge orientation can be read as
+   * a property of the device rather than of the rotation.
+   */
+  @Suppress("DEPRECATION")
+  private fun displayRotation(): Int {
+    val activity = activity ?: return Surface.ROTATION_0
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      activity.display?.rotation ?: Surface.ROTATION_0
+    } else {
+      activity.windowManager.defaultDisplay.rotation
+    }
+  }
 
   private fun describeNativeApi(): String {
     val hinge = hinge
