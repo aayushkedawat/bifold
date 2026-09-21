@@ -32,6 +32,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Local agent instructions, not part of the package.
+# Local agent instructions and working notes, not part of the package.
 Claude.md
 CLAUDE.md
+Claude.v0.1.md
+Claude_*.md
+docs/phase0*.md
