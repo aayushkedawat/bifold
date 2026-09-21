@@ -1,6 +1,6 @@
 name: bifold
 description: "Fold awareness for the foldable iPhone: hinge angle and pose, reserved regions, fold-aware layout, a capture accessory for the outer display, a debug overlay and test fakes."
-version: 0.1.0
+version: 0.1.1
 homepage: https://github.com/aayushkedawat/bifold
 repository: https://github.com/aayushkedawat/bifold
 issue_tracker: https://github.com/aayushkedawat/bifold/issues

@@ -88,10 +88,22 @@ void main() {
   });
 
   group('foldInfoStream', () {
+    /// Stands in for a registered native side, so the stream's probe finds
+    /// one. Without it the probe reports no plugin, which is what every
+    /// platform with no native implementation does.
+    void installNativeSide() {
+      messenger.setMockMethodCallHandler(
+        platform.methodChannel,
+        (call) async => <Object?, Object?>{'version': 1, 'isFoldable': false},
+      );
+    }
+
     test('decodes events from the event channel', () async {
+      installNativeSide();
       final emitted = <FoldInfo>[];
       final subscription = platform.foldInfoStream().listen(emitted.add);
       addTearDown(subscription.cancel);
+      await pumpEventQueue();
 
       await _emit(messenger, <Object?, Object?>{
         'version': 1,
@@ -126,12 +138,57 @@ void main() {
     });
 
     test('decodes a non-map event to the unsupported state', () async {
+      installNativeSide();
       final emitted = <FoldInfo>[];
       final subscription = platform.foldInfoStream().listen(emitted.add);
       addTearDown(subscription.cancel);
+      await pumpEventQueue();
 
       await _emit(messenger, 'unexpected');
       expect(emitted.single, FoldInfo.unsupported);
+    });
+
+    test('never touches the event channel when there is no native side',
+        () async {
+      // Regression test. Listening to an event channel with no handler makes
+      // EventChannel report a MissingPluginException through
+      // FlutterError.reportError, which no amount of error handling on this
+      // side can suppress. It reached the console on every Android launch.
+      final errors = <FlutterErrorDetails>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = errors.add;
+      addTearDown(() => FlutterError.onError = previous);
+
+      final emitted = <FoldInfo>[];
+      final subscription = platform.foldInfoStream().listen(emitted.add);
+      addTearDown(subscription.cancel);
+      await pumpEventQueue();
+
+      expect(errors, isEmpty, reason: 'no plugin is a state, not a failure');
+      expect(emitted.single, FoldInfo.unsupported);
+    });
+
+    test('subscribes when the native side answers with a failure', () async {
+      // A PlatformException means the plugin is there and unhappy, which is a
+      // different thing from the plugin not being there at all.
+      messenger.setMockMethodCallHandler(
+        platform.methodChannel,
+        (call) async => throw PlatformException(code: 'no_view'),
+      );
+
+      final emitted = <FoldInfo>[];
+      final subscription = platform.foldInfoStream().listen(emitted.add);
+      addTearDown(subscription.cancel);
+      await pumpEventQueue();
+
+      await _emit(messenger, <Object?, Object?>{
+        'version': 1,
+        'isFoldable': true,
+        'display': 'inner',
+        'pose': 'fullyOpen',
+        'regions': <Object?>[],
+      });
+      expect(emitted.single.isFoldable, isTrue);
     });
 
     test('returns the same broadcast stream to every caller', () {

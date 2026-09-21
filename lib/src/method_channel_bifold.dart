@@ -79,11 +79,68 @@ class MethodChannelBifold extends BifoldPlatform {
   Stream<FoldInfo> foldInfoStream() {
     // Broadcast so that several BifoldScopes can listen without each opening
     // its own native subscription.
-    return _stream ??= eventChannel
-        .receiveBroadcastStream()
-        .map(_decode)
-        .handleError(_reportStreamError)
-        .asBroadcastStream();
+    return _stream ??= _guardedStream();
+  }
+
+  /// Subscribes to the event channel only once the method channel has
+  /// confirmed there is a native side to subscribe to.
+  ///
+  /// Listening to an event channel with no handler is not a failure this class
+  /// can absorb. [EventChannel.receiveBroadcastStream] catches its own failed
+  /// `listen` call and reports it through [FlutterError.reportError] rather
+  /// than adding it to the stream, so it reaches the console whatever this
+  /// stream does with its errors. Asking the method channel first keeps a
+  /// platform with no native side quiet, which is the normal case on Android,
+  /// web and desktop.
+  Stream<FoldInfo> _guardedStream() {
+    StreamSubscription<FoldInfo>? native;
+    late final StreamController<FoldInfo> controller;
+
+    Future<void> start() async {
+      final bool present = await _nativeSideIsPresent();
+      if (!controller.hasListener) {
+        // Everyone stopped listening while the probe was in flight.
+        return;
+      }
+      if (!present) {
+        controller.add(FoldInfo.unsupported);
+        return;
+      }
+      native = eventChannel
+          .receiveBroadcastStream()
+          .map(_decode)
+          .listen(controller.add, onError: _reportStreamError);
+    }
+
+    controller = StreamController<FoldInfo>.broadcast(
+      // Synchronous so that forwarding through this controller costs no extra
+      // microtask, and an event reaches listeners in the same turn it would
+      // have before this stream was placed in front of the event channel.
+      // Every add() below happens inside a stream callback or after an await,
+      // never re-entrantly during listen(), which is what makes that safe.
+      sync: true,
+      onListen: () => unawaited(start()),
+      onCancel: () {
+        native?.cancel();
+        native = null;
+      },
+    );
+    return controller.stream;
+  }
+
+  /// Whether a native implementation is registered on the method channel.
+  ///
+  /// A [PlatformException] counts as present: the native side answered, badly,
+  /// which is a different thing from not being there at all.
+  Future<bool> _nativeSideIsPresent() async {
+    try {
+      await methodChannel.invokeMethod<Object?>('getFoldInfo');
+      return true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return true;
+    }
   }
 
   static FoldInfo _decode(Object? event) {
