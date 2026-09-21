@@ -4,14 +4,18 @@
 [![CI](https://github.com/aayushkedawat/bifold/actions/workflows/ci.yml/badge.svg)](https://github.com/aayushkedawat/bifold/actions/workflows/ci.yml)
 [![pub points](https://img.shields.io/pub/points/bifold)](https://pub.dev/packages/bifold/score)
 [![likes](https://img.shields.io/pub/likes/bifold)](https://pub.dev/packages/bifold/score)
-[![platform](https://img.shields.io/badge/platform-iOS-lightgrey.svg)](https://pub.dev/packages/bifold)
+[![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://pub.dev/packages/bifold)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Fold awareness for Flutter apps on the foldable iPhone: where the fold is, how
-far the device is open, which display you are on, and where hardware is in the
-way.
+Fold awareness for Flutter apps on the foldable iPhone and on Android
+foldables: where the fold is, how far the device is open, which display you are
+on, and where hardware is in the way.
 
-On every other device — non-foldable iPhones, older iOS, iPad, Android, web and
+One API for both. The same `FoldInfo`, the same layout widgets and the same
+test fakes work on either platform, and your code never asks which one it is
+running on.
+
+On every device without a fold — ordinary phones, older iOS, iPad, web and
 desktop — it reports a well-defined "no fold" state and never throws, so it is
 safe to adopt in an app that ships everywhere.
 
@@ -371,8 +375,15 @@ shows two panes rather than collapsing to one.
 | Flutter | 3.27.0+ |
 | Dart | 3.6.0+ |
 | iOS deployment target | 15.0 |
-| Fold reporting | iOS 27.1+ on a foldable device |
+| iOS fold reporting | iOS 27.1+ on a foldable device |
 | Xcode to build | **26.x or newer — 27.1 is not required** |
+| Android `minSdk` | 24 |
+| Android fold reporting | a device Jetpack WindowManager reports a fold for |
+| Android hinge angle | API 30+, on a device with a hinge angle sensor |
+
+The Android side uses `androidx.window` 1.2.0, pinned to the version Flutter's
+own Android embedding already resolves, so adding `bifold` cannot pull your app
+into a version conflict with the engine. It asks for no permissions.
 
 The fold symbols ship in the iOS 27.1 SDK, but `bifold` resolves them through
 the Objective-C runtime rather than calling them directly. One binary builds on
@@ -393,8 +404,11 @@ again. `reservedRect` is the bare hardware if you need it.
 "rate and granularity" as system policy that can change, so the platform's own
 classification is the more stable signal.
 
-**Lay out against size classes, not orientation.** The inner display does not
-honour an app's supported interface orientations.
+**Lay out against size classes, not orientation.** On iOS the inner display
+does not honour an app's supported interface orientations. On Android there are
+no UIKit-style size classes at all, so `bifold` derives them from the current
+window against the Material breakpoints — 600dp wide, 480dp tall — which is why
+they are reported rather than `unspecified`.
 
 **Pose and angle arrive a moment after the stream is first listened to.** The
 platform delivers the initial hinge update asynchronously, so a one-shot
@@ -402,26 +416,63 @@ platform delivers the initial hinge update asynchronously, so a one-shot
 derived from the regions instead — never wrong, only occasionally late.
 `Bifold.of(context)` updates when it lands.
 
-**`FoldPose` mirrors the platform exactly.** Postures like "book" or "tabletop"
-are Android foldable vocabulary and are not reported by this device.
+**`FoldPose` mirrors the platform, and never guesses.** Postures like "book"
+or "tabletop" are vocabulary neither platform reports, and deriving them from an
+angle is the app's decision, not this package's.
+
+**On Android, `pose` is `unknown` when the device is shut — never `closed`.**
+`FoldingFeature` has only `FLAT` and `HALF_OPENED`, and a closed device reports
+no folding feature at all, which is indistinguishable from a device that does
+not fold. `isFoldable` still answers correctly there, because it comes from a
+static device feature rather than from an observation.
+
+**On Android, region margins are zero.** The platform reports hardware bounds
+with no clearance around them, so `frame` and `reservedRect` are the same
+rectangle. On iOS the frame arrives with clearance already built in.
 
 ## Verification
 
-Every native symbol this package calls was verified by two independent passes
-that agree: Objective-C runtime introspection on a booted iPhone Duo simulator
-running iOS 27.1, and the iOS 27.1 SDK headers. Exact type encodings and header
-quotes are recorded in [`API_NOTES.md`](API_NOTES.md), and both passes are
-reproducible — the runtime probe ships as
-`integration_test/native_api_probe_test.dart`.
+### What is verified where
 
-The device itself has not shipped, so nothing here has run on physical
-hardware. [`doc/manual-tests.md`](doc/manual-tests.md) tracks what has been
-checked on the simulator and what has not.
+| | iOS | Android |
+|---|---|---|
+| Native symbols checked against SDK/artifacts | ✅ | ✅ |
+| Fold state on a simulator / emulator | ✅ | ✅ |
+| Open, half-open and closed | ✅ | ✅ |
+| Hinge angle | ✅ | ✅ (injected) |
+| Size classes | ✅ | ✅ |
+| Physical hardware | ❌ | ❌ |
+
+**Nothing in this package has run on a physical foldable, on either platform.**
+The foldable iPhone has not shipped, and the Android side has been exercised on
+emulators only. Treat the behaviour as verified where the table says so and
+unverified everywhere else, and please
+[file a report](https://github.com/aayushkedawat/bifold/issues) if a real device
+disagrees — `Bifold.debugDescribeNativeApi()` prints what to paste in.
+
+### iOS
+
+Every Apple symbol was verified by two independent passes that agree:
+Objective-C runtime introspection on a booted iPhone Duo simulator running
+iOS 27.1, and the iOS 27.1 SDK headers. Exact type encodings and header quotes
+are in [`API_NOTES.md`](API_NOTES.md), and both passes are reproducible — the
+runtime probe ships as `integration_test/native_api_probe_test.dart`.
+
+### Android
+
+Every symbol was verified by `javap` over the artifacts themselves rather than
+from documentation: `window-1.2.0.aar`, `window-java-1.2.0.aar` and
+`android.jar`. Behaviour was then checked on a `pixel_9_pro_fold` emulator
+running the `android-37.2` system image, across open, half-open and closed,
+with hinge angles injected. The observed values are recorded in
+[`API_NOTES.md`](API_NOTES.md), along with what remains unverified.
 
 The other half of the promise — that a platform with no fold support reports
-`FoldInfo.unsupported` and stays quiet — is verified too: the example runs on
-an Android emulator, where this package has no native implementation at all,
-reporting no fold throughout and logging nothing.
+`FoldInfo.unsupported` and stays quiet — is verified too, on an ordinary
+non-foldable Android emulator.
+
+[`doc/manual-tests.md`](doc/manual-tests.md) has the checklist for both
+platforms, with the commands to drive each state.
 
 ## License
 

@@ -1,23 +1,63 @@
-## 0.1.1
+## 0.2.0
+
+Android foldables are supported. The same `FoldInfo`, the same widgets and the
+same tests now work on both platforms, and consumer code does not branch on
+which one it is running on.
+
+**Added**
+
+* Android implementation, in Kotlin, over Jetpack WindowManager
+  (`androidx.window` 1.2.0, pinned to the version Flutter's own embedding
+  already resolves so the plugin cannot cause a conflict with the engine).
+* `FoldInfo.pose` on Android from `FoldingFeature.State`: `FLAT` maps to
+  `fullyOpen`, `HALF_OPENED` to `partiallyOpen`.
+* `FoldInfo.regions` on Android from `FoldingFeature`, reported as a
+  `RegionKind.division`. `isActive` follows `isSeparating`, which is the same
+  thing the active division means on iOS.
+* `FoldInfo.hingeAngle` on Android from `Sensor.TYPE_HINGE_ANGLE` (API 30+),
+  converted from the degrees the sensor reports to the radians the API
+  documents.
+* `FoldInfo.isFoldable` on Android from
+  `PackageManager.FEATURE_SENSOR_HINGE_ANGLE`, which answers on a **closed**
+  device, where no folding feature is reported at all.
+* Size classes on Android, derived from the current window against the
+  Material breakpoints (600dp wide, 480dp tall). Without these `isRegular` was
+  always false and `BifoldScaffold` rendered its compact layout on every
+  Android device, tablets and unfolded foldables included.
+* An Android target in the example app.
+* `API_NOTES.md` gains an Android section: every symbol with the artifact it
+  was verified against, the observed emulator behaviour, and what remains
+  unverified.
 
 **Fixed**
 
-* No more `MissingPluginException` in the console on platforms without a
-  native implementation. Every Android, web and desktop launch previously
-  logged `MissingPluginException(No implementation found for method listen on
-  channel dev.bifold/fold_info)` from the services library. The fold state was
-  correct throughout — the app reported `FoldInfo.unsupported` and nothing
-  threw — but the error looked like a broken plugin.
-
+* No more `MissingPluginException` in the console on platforms with no native
+  implementation. Every Android, web and desktop launch previously logged
+  `MissingPluginException(No implementation found for method listen on channel
+  dev.bifold/fold_info)` from the services library. Fold state was correct
+  throughout and nothing threw, but the error looked like a broken plugin.
   `EventChannel.receiveBroadcastStream` reports its own failed `listen` through
   `FlutterError.reportError` rather than through the stream, so no error
-  handling in this package could suppress it. `foldInfoStream()` now asks the
-  method channel whether a native implementation is registered and subscribes
-  to the event channel only if one is, reporting `FoldInfo.unsupported` when
-  there is not. A native side that answers with a `PlatformException` still
-  counts as present.
+  handling in this package could suppress it; `foldInfoStream()` now asks the
+  method channel whether an implementation is registered and subscribes only if
+  one is.
 
-  No API change, and no behaviour change on iOS.
+**Known limitations**
+
+* `FoldInfo.display` is `none` on Android when no fold is visible. A folding
+  feature is only reported for the display that has the fold, so seeing one
+  means `inner`; the absence of one means closed, or on a cover display, or not
+  a foldable, and Android offers no documented way to tell those apart.
+* `FoldInfo.pose` is `unknown`, never `closed`, on Android. `FoldingFeature`
+  has no closed state and a shut device reports no feature, so `closed` would
+  have to be inferred from an absence.
+* Region margins are zero on Android. The platform reports hardware bounds with
+  no clearance around them, so `frame` and `reservedRect` are the same
+  rectangle — unlike iOS, where the frame arrives with clearance built in.
+* The capture accessory remains iOS-only. On Android its methods answer rather
+  than fail, so shared code can call them unconditionally.
+* Verified on the Android emulator only. No physical foldable hardware, on
+  either platform.
 
 ## 0.1.0
 

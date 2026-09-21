@@ -1,6 +1,8 @@
 # Manual test checklist
 
-What cannot be checked by `flutter test`. Everything here needs the iPhone Duo
+What cannot be checked by `flutter test`.
+
+This file has two halves. Everything up to "Android" needs the iPhone Duo
 simulator in **DeviceHub** (`Xcode.app/Contents/Applications/DeviceHub.app`),
 which is where the open / close / rotate / fold controls live — `simctl` has no
 fold command, so none of this can be scripted.
@@ -147,3 +149,82 @@ The inner display does not honour supported interface orientations.
 Definition of done in `CLAUDE.md` asks for a short vertical clip:
 
 - [ ] Fold → debug overlay showing the regions → split layout resolving.
+
+
+---
+
+# Android
+
+Unlike the iOS half, all of this **can** be scripted: `adb` drives both the
+posture and the hinge angle. Record the emulator image and the date with each
+pass.
+
+## Setup
+
+```sh
+$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd \
+  -n bifold_book \
+  -k "system-images;android-37.2;google_apis_playstore_ps16k;arm64-v8a" \
+  -d pixel_9_pro_fold
+
+$ANDROID_HOME/emulator/emulator -avd bifold_book &
+
+cd example
+flutter run -d emulator-5556
+```
+
+A flip-style device is the generic `6.7in Foldable` profile ("Horizontal
+Fold-in") in place of `pixel_9_pro_fold`.
+
+## Driving it
+
+```sh
+# Posture. 0 CLOSED, 1 HALF_OPENED, 2 OPENED.
+adb -s emulator-5556 shell cmd device_state state 1
+adb -s emulator-5556 shell cmd device_state print-states   # what this AVD has
+
+# Hinge angle, in degrees.
+adb -s emulator-5556 emu sensor set hinge-angle0 45
+adb -s emulator-5556 emu sensor get hinge-angle0
+```
+
+**The two are independent.** Forcing a device state does not move the hinge
+sensor, and moving the sensor does not necessarily change the device state. A
+real fold moves both, so set both, or the angle and the pose will disagree in a
+way no physical device would produce.
+
+Screenshots need an explicit display, because a foldable has more than one and
+`screencap` otherwise warns and picks one arbitrarily:
+
+```sh
+adb -s emulator-5556 shell dumpsys SurfaceFlinger --display-id   # list them
+adb -s emulator-5556 exec-out screencap -d <display-id> -p > shot.png
+```
+
+## Checks
+
+| # | Step | Expected |
+|---|---|---|
+| A1 | Open (state 2), angle 180 | `foldable`, `display: inner`, `pose: fullyOpen`, 1 region **inactive**, `regular/regular` |
+| A2 | Half-open (state 1), angle 45 | `pose: partiallyOpen`, division **active**, `BifoldSplit` puts the two reader pages side by side |
+| A3 | Closed (state 0), angle 0 | `foldable` **still true**, `pose: unknown`, `display: none`, 0 regions, `compact/regular` on the cover display |
+| A4 | A1 → A3 → A1 | `BifoldScaffold` swaps its NavigationRail for a bottom bar and back; no stale measurements from the previous display |
+| A5 | Sweep the angle 0 → 180 | the hinge gauge tracks continuously; the angle never sticks at a previous reading |
+| A6 | Rotate while half-open | the division follows the new orientation |
+| A7 | Multi-window / split screen | size classes follow the window, not the display |
+| A8 | Run on a non-foldable AVD | `not foldable`, no regions, **nothing logged to the console** |
+| A9 | Throughout | no exception of any kind in `flutter run` output |
+
+A3 is the one worth repeating after any change to capability detection: it is
+the case observation cannot cover, and it passes only because `isFoldable`
+comes from a static device feature.
+
+## Not covered here
+
+* Physical Android hardware. Nothing in this package has run on any.
+* `OcclusionType.FULL` — no emulator state has been found that produces it.
+* Activity recreation mid-fold on a device that actually recreates it; the
+  emulator does not always.
+* Rear display. The AVD advertises `REAR_DISPLAY_MODE` and
+  `CONCURRENT_INNER_DEFAULT` device states, so this looks testable, but no
+  support exists yet.

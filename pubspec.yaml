@@ -1,6 +1,6 @@
 name: bifold
-description: "Fold awareness for the foldable iPhone: hinge angle and pose, reserved regions, fold-aware layout, a capture accessory for the outer display, a debug overlay and test fakes."
-version: 0.1.1
+description: "Fold awareness for the foldable iPhone and Android foldables: hinge angle and pose, fold regions, fold-aware layout widgets, a debug overlay and test fakes."
+version: 0.2.0
 homepage: https://github.com/aayushkedawat/bifold
 repository: https://github.com/aayushkedawat/bifold
 issue_tracker: https://github.com/aayushkedawat/bifold/issues
@@ -9,8 +9,8 @@ issue_tracker: https://github.com/aayushkedawat/bifold/issues
 topics:
   - foldable
   - ios
+  - android
   - adaptive-layout
-  - responsive
   - hinge
 
 environment:
