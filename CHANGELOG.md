@@ -4,7 +4,39 @@ Android foldables are supported. The same `FoldInfo`, the same widgets and the
 same tests now work on both platforms, and consumer code does not branch on
 which one it is running on.
 
-**Added**
+**Added — capabilities**
+
+A device answers two different questions now. `FoldInfo` says what it is
+doing; `BifoldCapabilities` says what it can ever do.
+
+* `Bifold.capabilitiesOf(context)` in a widget, `Bifold.capabilities`
+  outside one, plus `Bifold.capabilitiesStream`, `Bifold.capabilitiesReady`
+  and `Bifold.initialize()`.
+* `hasFold`, `hasHingeAngle`, `hasHalfOpenedPosture`, `hasRearDisplay`,
+  `hasCoverDisplay`, `hasReservedRegions`, `hasSeparatingFold` and
+  `hasFoldOcclusion`, on both platforms.
+* Every capability is really tri-state. `statusOf(feature)` exposes
+  `supported` / `unsupported` / `unknown`, because a boolean cannot tell
+  "this device has no hinge" from "nothing has reported a hinge yet", and at
+  startup those mean very different things. `hasX` is true only for
+  `supported`.
+* `BifoldCapabilities.unresolved` and `BifoldCapabilities.none` — both
+  report `hasFold` false, and only one of them means no.
+* `sourceOf(feature)` names the platform signal behind each answer, and
+  `Bifold.diagnosticReport()` prints the lot for a bug report. Nothing is
+  transmitted; it returns a string.
+* `formFactor` (`book`, `flip`, `none`, `unknown`; never `dualScreen`, which
+  fold orientation cannot establish) and `rearDisplayModes`.
+* `FoldInfo.isResolved` and `FoldInfo.none`, for the same reason: they differ
+  from `FoldInfo.unsupported` only in whether the platform has answered.
+* `FakeBifoldPlatform`, so a test can drive the stream itself rather than
+  reimplement a controller, and `BifoldCapabilityFakes` profiles named after
+  device shapes rather than products.
+* Three downstream examples under `example/lib/downstream/` — a hinge-reactive
+  creature, a two-pane layout and a rear-display camera — each written with
+  **no platform checks at all**, with tests covering every device shape.
+
+**Added — Android**
 
 * Android implementation, in Kotlin, over Jetpack WindowManager
   (`androidx.window` 1.2.0, pinned to the version Flutter's own embedding
@@ -42,7 +74,28 @@ which one it is running on.
   method channel whether an implementation is registered and subscribes only if
   one is.
 
+**Changed**
+
+* `FoldInfo.fromMap({})` now decodes to `FoldInfo.none` rather than
+  `FoldInfo.unsupported`. A payload arriving at all means the platform
+  answered, and the two differ only in `isResolved`. Code comparing a decoded
+  value against `FoldInfo.unsupported` will see a difference.
+* `Bifold.debugDescribeNativeApi()` is deprecated in favour of
+  `Bifold.diagnosticReport()`, which includes it alongside capabilities and
+  current state. It still works, and is removed in 0.4.0.
+
 **Known limitations**
+
+* `hasCoverDisplay` is `unknown` on Android, and will probably stay that way.
+  Whether an app may run on a cover display is OEM policy, and there is no
+  public query behind it. Reporting `unsupported` would be a stronger claim
+  than the evidence allows.
+* `hasHalfOpenedPosture` is `unknown` on Android until a half-opened posture
+  has actually been observed. No static signal for it exists, and never having
+  seen something is not evidence it cannot happen.
+* Rear display reports capability and availability only. Actually presenting
+  content on the second display is not implemented on Android; the iOS capture
+  accessory is unchanged.
 
 * `FoldInfo.display` is `none` on Android when no fold is visible. A folding
   feature is only reported for the display that has the fold, so seeing one

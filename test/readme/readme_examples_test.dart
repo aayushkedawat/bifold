@@ -177,4 +177,34 @@ void main() {
     expect(FoldInfoFakes.unsupported, FoldInfo.unsupported);
     expect(FoldInfoFakes.partiallyOpenVertical(viewSize: size), isNotNull);
   });
+  test('the capability examples build', () {
+    expect(capabilityGate, isNotNull);
+    expect(capabilitiesOutsideTheTree, isNotNull);
+  });
+}
+
+// --- What can this device do? --------------------------------------------
+Widget capabilityGate(BuildContext context) {
+  final can = Bifold.capabilitiesOf(context);
+  if (can.hasHingeAngle) {
+    return const Text('reacts to the angle');
+  }
+  switch (can.statusOf(FoldFeature.halfOpenedPosture)) {
+    case CapabilityStatus.supported:
+      return const Text('proven yes');
+    case CapabilityStatus.unsupported:
+      return const Text('proven no');
+    case CapabilityStatus.unknown:
+      return const Text('nobody has said');
+  }
+}
+
+Future<void> capabilitiesOutsideTheTree() async {
+  await Bifold.capabilitiesReady;
+  // ignore: unused_local_variable
+  final folds = Bifold.capabilities.hasFold;
+  // ignore: unused_local_variable
+  final source = Bifold.capabilities.sourceOf(FoldFeature.fold);
+  // ignore: unused_local_variable
+  final report = await Bifold.diagnosticReport();
 }

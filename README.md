@@ -34,6 +34,7 @@ if (info.division != null) {
 - [Install](#install)
 - [Which widget do I want?](#which-widget-do-i-want)
 - [Reading fold state](#reading-fold-state)
+- [What can this device do?](#what-can-this-device-do)
 - [Layout](#layout)
 - [Camera](#camera)
 - [Diagnostics](#diagnostics)
@@ -106,6 +107,80 @@ final subscription = Bifold.stream.listen((info) {
 
 `Bifold.maybeOf(context)` returns null instead of throwing when there is no
 `BifoldScope` above, which is useful in a widget that may be used either way.
+
+## What can this device do?
+
+Two different questions, two different answers. `FoldInfo` says what the
+device is doing *now*. `BifoldCapabilities` says what it can *ever* do.
+
+```dart
+final can = Bifold.capabilitiesOf(context);
+
+if (can.hasHingeAngle) {
+  // Worth building something that reacts to the angle.
+}
+```
+
+Keeping them apart matters. A foldable folded shut still has a fold. A hinge
+sensor that is present but silent is a missing *reading*, not a missing
+sensor.
+
+### False does not mean no
+
+Every capability is really one of three states, and the third is the reason
+this type exists:
+
+```dart
+switch (can.statusOf(FoldFeature.halfOpenedPosture)) {
+  case CapabilityStatus.supported:    // proven yes
+  case CapabilityStatus.unsupported:  // proven no
+  case CapabilityStatus.unknown:      // nobody has said
+}
+```
+
+`hasHalfOpenedPosture` is false for both `unsupported` **and** `unknown`. At
+startup, before the platform has answered, everything is `unknown` — so a
+layout that branches on `hasFold` being false will briefly treat a real
+foldable as an ordinary phone. Check `isResolved`, or branch on `statusOf`.
+
+### The rules it follows
+
+| Rule | Why |
+|---|---|
+| Observation is evidence **for**, never against | A closed Android foldable reports no fold at all. Not seeing one proves nothing |
+| `supported` is sticky | Otherwise folding the device shut would look like it losing its hinge |
+| Only a static platform query yields `unsupported` | Everything else is `unknown`, which is an answer |
+
+### Where an answer came from
+
+```dart
+can.sourceOf(FoldFeature.fold);   // 'android.pm.FEATURE_SENSOR_HINGE_ANGLE'
+await Bifold.diagnosticReport();  // the whole picture, for a bug report
+```
+
+`diagnosticReport()` builds a string and returns it. **Nothing is
+transmitted** — sending it anywhere is your decision.
+
+### Outside the widget tree
+
+```dart
+await Bifold.capabilitiesReady;      // wait for the first answer
+Bifold.capabilities.hasFold;         // then read the running best
+```
+
+Read `Bifold.capabilities` rather than the future's value: the future carries
+a snapshot from first resolution, and capabilities keep improving after it.
+
+### What each platform can tell you
+
+| | iOS | Android |
+|---|---|---|
+| `hasFold` | runtime detection | `FEATURE_SENSOR_HINGE_ANGLE` — answers even when shut |
+| `hasHingeAngle` | `UIHingeInteraction` | `Sensor.TYPE_HINGE_ANGLE` (API 30+) |
+| `hasHalfOpenedPosture` | from the OS | only once observed, so `unknown` until then |
+| `hasRearDisplay` | capture accessory | `WindowAreaController` |
+| `hasCoverDisplay` | supported | **`unknown`, probably always** — whether an app may run on a cover display is OEM policy with no public query |
+| `formFactor` | `unknown` | `book` or `flip`, corrected for screen rotation |
 
 ## Layout
 
