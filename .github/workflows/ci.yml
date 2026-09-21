@@ -26,7 +26,7 @@ jobs:
     name: Analyse, format and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -67,8 +67,8 @@ jobs:
     name: Build the example for Android
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -84,11 +84,17 @@ jobs:
         run: flutter build apk --debug
         working-directory: example
 
+      # The plugin's own Kotlin tests. They run from the example's Gradle
+      # project because that is what resolves the plugin as a module.
+      - name: Test the Kotlin adapter
+        run: ./gradlew :bifold:test --console=plain
+        working-directory: example/android
+
   ios:
     name: Build the example for iOS
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}

@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.os.Build
-import android.view.Surface
 import androidx.window.area.WindowAreaCapability
 import androidx.window.area.WindowAreaInfo
 import androidx.window.layout.FoldingFeature
@@ -180,38 +179,8 @@ internal class CapabilityReader(context: Context) {
     else -> evidence("unknown", "android.not_yet_observed")
   }
 
-  /**
-   * Shape, inferred only from a fold actually seen, and only after correcting
-   * for how the screen is turned.
-   *
-   * `FoldingFeature.Orientation` describes the hinge relative to the *current*
-   * display rotation, not to the device. Rotating a book foldable through 90
-   * degrees makes its vertical hinge report `HORIZONTAL`, which reads as a
-   * flip phone. Observed on a `pixel_9_pro_fold` emulator in landscape, where
-   * this reported `flip` for a book-style device until the rotation was
-   * folded in.
-   *
-   * `dualScreen` is never reported: orientation cannot tell one flexible
-   * display from two physical ones, and guessing would be the kind of claim
-   * the evidence does not support.
-   */
-  private fun formFactor(rotation: Int): String {
-    val orientation = foldOrientation ?: return "unknown"
-    val quarterTurned =
-      rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
-    val upright = when (orientation) {
-      FoldingFeature.Orientation.VERTICAL ->
-        if (quarterTurned) FoldingFeature.Orientation.HORIZONTAL else orientation
-      FoldingFeature.Orientation.HORIZONTAL ->
-        if (quarterTurned) FoldingFeature.Orientation.VERTICAL else orientation
-      else -> return "unknown"
-    }
-    return when (upright) {
-      FoldingFeature.Orientation.VERTICAL -> "book"
-      FoldingFeature.Orientation.HORIZONTAL -> "flip"
-      else -> "unknown"
-    }
-  }
+  private fun formFactor(rotation: Int): String =
+    FormFactors.from(foldOrientation, rotation)
 
   private companion object {
     val PRESENT = WindowAreaCapability.Operation.OPERATION_PRESENT_ON_AREA

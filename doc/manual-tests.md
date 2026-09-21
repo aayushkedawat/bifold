@@ -174,7 +174,11 @@ flutter run -d emulator-5556
 ```
 
 A flip-style device is the generic `6.7in Foldable` profile ("Horizontal
-Fold-in") in place of `pixel_9_pro_fold`.
+Fold-in") in place of `pixel_9_pro_fold`. Run both: they do not report the
+same things. The flip device produces `OcclusionType.FULL` and so reaches
+`hasFoldOcclusion` supported, which the book-style device never does, and it
+has no `REAR_DISPLAY_MODE` device state, so `hasRearDisplay` stays unknown
+there.
 
 ## Driving it
 

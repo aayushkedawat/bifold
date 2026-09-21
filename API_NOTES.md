@@ -409,6 +409,13 @@ cover display 1080x2424 at 390dpi:
 | HALF_OPENED | true | `partiallyOpen` | `inner` | 1, **active** | regular/regular |
 | CLOSED (cover) | true | `unknown` | `none` | 0 | compact/regular |
 
+On the flip-style AVD (generic `6.7in Foldable`), half-open at 90 degrees:
+`formFactor` `flip`, `pose` `partiallyOpen`, one active region, and
+`foldOcclusion` **supported** — the one capability the book-style device never
+produces. Its device states are `CLOSED`, `HALF_OPENED` and `OPENED` only,
+with no `REAR_DISPLAY_MODE`, so `rearDisplay` stays `unknown` there rather
+than being claimed.
+
 `adb shell cmd device_state state <n>` changes posture; the hinge angle is a
 separate channel, injected with `adb emu sensor set hinge-angle0 <degrees>`.
 Forcing a device state does **not** move the sensor, so the two must be set
@@ -437,6 +444,9 @@ testable here without hardware. Not yet exercised.
   such. On a Flutter activity that does not fill the window — multi-window, or
   a non-full-screen embedding — the conversion to view coordinates has not been
   checked.
-* `OcclusionType.FULL` is read but not yet surfaced; no emulator state has been
-  found that produces it.
+* ~~`OcclusionType.FULL` never observed.~~ **Resolved 2026-09-21**: a
+  flip-style AVD (generic `6.7in Foldable`) half-open reports
+  `OcclusionType.FULL`, so `hasFoldOcclusion` reaches `supported` there. The
+  book-style `pixel_9_pro_fold` does not, which matches the hardware: a
+  book-style crease is continuous, a flip-style one can hide content.
 * Nothing here has run on physical Android hardware.

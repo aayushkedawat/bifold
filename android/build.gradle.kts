@@ -39,6 +39,9 @@ android {
         getByName("main") {
             java.srcDirs("src/main/kotlin")
         }
+        getByName("test") {
+            java.srcDirs("src/test/kotlin")
+        }
     }
 
     defaultConfig {
@@ -47,7 +50,6 @@ android {
         // this and dropping older devices that bifold still degrades on.
         minSdk = 24
     }
-}
 
 kotlin {
     compilerOptions {
@@ -55,7 +57,19 @@ kotlin {
     }
 }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all { it.useJUnitPlatform() }
+        }
+    }
+}
+
 dependencies {
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
     // Pinned to the version Flutter's own Android embedding already resolves
     // (androidx.window:window-java:1.2.0, read from flutter_embedding's pom),
     // so the plugin cannot drag the app into a version conflict with the
