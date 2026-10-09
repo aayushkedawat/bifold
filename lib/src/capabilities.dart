@@ -435,6 +435,12 @@ class BifoldCapabilities {
 /// Pure Dart with no platform imports, so every rule above is unit-testable
 /// without a device.
 class CapabilityResolver {
+  /// Creates a resolver that has established nothing yet.
+  ///
+  /// Each platform implementation keeps its own, because the history it
+  /// accumulates is the history of that implementation's reports.
+  CapabilityResolver();
+
   BifoldCapabilities _current = BifoldCapabilities.unresolved;
 
   /// Everything established so far.
