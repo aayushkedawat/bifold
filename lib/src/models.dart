@@ -13,6 +13,45 @@ import 'package:flutter/painting.dart' show EdgeInsets;
 /// partial information instead of an exception.
 const int kBifoldPayloadVersion = 1;
 
+final Set<int> _reportedPayloadVersions = <int>{};
+
+/// Reads the payload version [payload] declares, and complains once about a
+/// version this build does not understand.
+///
+/// The decoders call this for the complaint rather than the number. Decoding a
+/// newer payload leniently is the right behaviour and an invisible one: a
+/// developer who updates the plugin's native half without its Dart half would
+/// otherwise watch fields go quietly missing with nothing to point at the
+/// cause. Debug builds only, and once per version, because it is a build
+/// mistake rather than a runtime condition.
+int readPayloadVersion(Map<Object?, Object?> payload) {
+  final Object? declared = payload['version'];
+  // A payload with no version predates the key, so it cannot be newer than
+  // this build. Reading a missing key as zero would make every one of those
+  // look like a downgrade worth mentioning.
+  final int version = declared is int ? declared : kBifoldPayloadVersion;
+  assert(() {
+    if (version > kBifoldPayloadVersion &&
+        _reportedPayloadVersions.add(version)) {
+      debugPrint(
+        'bifold: the native side sent payload version $version, but this '
+        'build of the package understands $kBifoldPayloadVersion. Anything '
+        'added after version $kBifoldPayloadVersion is being ignored. Update '
+        'the bifold package to match the plugin.',
+      );
+    }
+    return true;
+  }());
+  return version;
+}
+
+/// Forgets which payload versions have already been complained about.
+///
+/// Tests only. The complaint is deliberately once per process, which would
+/// otherwise make the second test of it pass for the wrong reason.
+@visibleForTesting
+void debugResetPayloadVersionWarnings() => _reportedPayloadVersions.clear();
+
 /// Which physical display the app is currently presented on.
 enum FoldDisplay {
   /// The smaller cover display, available while the device is folded shut.
@@ -300,14 +339,19 @@ class FoldInfo {
     this.verticalSizeClass = FoldSizeClass.unspecified,
     this.verticalBarEdge = VerticalBarEdge.unspecified,
     this.isResolved = false,
+    this.capabilityRevision = 0,
   });
 
-  /// The state reported on every device and platform without fold support.
+  /// Nothing has answered yet.
   ///
-  /// This is what non-foldable iPhones, older iOS versions, iPad, Android, web
-  /// and desktop all report, and what widget tests see unless they supply
-  /// their own. Nothing in this package throws when the platform is
-  /// unsupported; it reports this instead.
+  /// This is what a `BifoldScope` reports on its first frame, before the
+  /// platform has said anything, and what widget tests see unless they supply
+  /// their own state. [isResolved] is false, so a layout that must not flash
+  /// the wrong way at startup can tell this apart from a device that really
+  /// has no fold.
+  ///
+  /// A platform with no fold support reports [none], not this: "no fold" is an
+  /// answer. Nothing in this package throws when the platform is unsupported.
   static const FoldInfo unsupported = FoldInfo(
     isFoldable: false,
     display: FoldDisplay.none,
@@ -321,6 +365,10 @@ class FoldInfo {
   /// Identical to [unsupported] except that [isResolved] is true. The
   /// difference matters at startup: [unsupported] means "nothing has answered
   /// yet", this means "the platform answered, and there is no fold".
+  ///
+  /// This is what non-foldable iPhones, older iOS versions, iPad, web and
+  /// desktop report, and what a platform with no native side at all reports:
+  /// having no implementation is itself a conclusive answer.
   static const FoldInfo none = FoldInfo(
     isFoldable: false,
     display: FoldDisplay.none,
@@ -336,6 +384,8 @@ class FoldInfo {
   /// malformed regions are dropped, so a native build newer than this package
   /// degrades rather than throwing.
   factory FoldInfo.fromMap(Map<Object?, Object?> map) {
+    readPayloadVersion(map);
+
     final Object? rawRegions = map['regions'];
     final List<FoldRegion> regions;
     if (rawRegions is List) {
@@ -364,10 +414,19 @@ class FoldInfo {
       verticalBarEdge: VerticalBarEdge.fromName(
         map['verticalBarEdge'] as String?,
       ),
-      // A payload arriving at all means the platform answered. Older native
-      // builds that do not send the key still resolve, because reaching this
-      // point required a reply.
-      isResolved: map['isResolved'] as bool? ?? true,
+      // Read strictly. The platform states whether it has established
+      // anything, and a payload that arrives before it could — the iOS view
+      // not loaded yet, Android's window info not delivered yet — says so by
+      // sending false. Defaulting a missing key to true would turn a build
+      // skew into a confident "there is no fold".
+      isResolved: map['isResolved'] == true,
+      capabilityRevision: switch (map['capabilityRevision']) {
+        final int revision => revision,
+        // A native build that predates the key never changes capabilities
+        // mid-run as far as this build can tell, so a constant zero makes the
+        // capability stream query exactly once rather than never.
+        _ => 0,
+      },
     );
   }
 
@@ -436,8 +495,21 @@ class FoldInfo {
   /// that must not flash the wrong way at startup should wait for this rather
   /// than branch on [isFoldable] immediately.
   ///
-  /// True on [FoldInfo.none] and on every real platform report.
+  /// True on [FoldInfo.none] and on every platform report that establishes
+  /// something. A platform can also report false — iOS before its view has
+  /// loaded, Android before the first window-layout callback — which is why
+  /// this is read from the payload rather than assumed from its arrival.
   final bool isResolved;
+
+  /// How many times the platform has changed what this device can do.
+  ///
+  /// Plumbing rather than something to read: the native side bumps this only
+  /// when the capability map it would report actually changes, so the
+  /// capability stream can re-query on a real change instead of on every
+  /// hinge sample. Read `BifoldCapabilities` for the capabilities
+  /// themselves -- named in prose rather than linked, because this file
+  /// deliberately does not depend on the capability model.
+  final int capabilityRevision;
 
   /// Whether both size classes are regular, which the inner display reports.
   bool get isRegular =>
@@ -473,6 +545,7 @@ class FoldInfo {
     FoldSizeClass? verticalSizeClass,
     VerticalBarEdge? verticalBarEdge,
     bool? isResolved,
+    int? capabilityRevision,
     bool clearHingeAngle = false,
   }) =>
       FoldInfo(
@@ -485,6 +558,7 @@ class FoldInfo {
         verticalSizeClass: verticalSizeClass ?? this.verticalSizeClass,
         verticalBarEdge: verticalBarEdge ?? this.verticalBarEdge,
         isResolved: isResolved ?? this.isResolved,
+        capabilityRevision: capabilityRevision ?? this.capabilityRevision,
       );
 
   @override
@@ -500,6 +574,10 @@ class FoldInfo {
           other.verticalBarEdge == verticalBarEdge &&
           other.isResolved == isResolved &&
           listEquals(other.regions, regions);
+  // capabilityRevision is deliberately absent. It is plumbing for the
+  // capability stream, not observable state, and including it would make
+  // every fold-aware widget rebuild when a capability settled -- which is
+  // exactly what the separate capability model exists to avoid.
 
   @override
   int get hashCode => Object.hash(
@@ -515,9 +593,12 @@ class FoldInfo {
       );
 
   @override
-  String toString() =>
-      'FoldInfo(isFoldable: $isFoldable, display: ${display.name}, '
-      'pose: ${pose.name}, regions: ${regions.length}'
-      '${hingeAngle == null ? '' : ', hingeAngle: '
-          '${hingeAngleDegrees!.toStringAsFixed(1)}\u00b0'})';
+  String toString() {
+    final double? degrees = hingeAngleDegrees;
+    return 'FoldInfo(isFoldable: $isFoldable, display: ${display.name}, '
+        'pose: ${pose.name}, regions: ${regions.length}'
+        '${degrees == null ? '' : ', hingeAngle: '
+            '${degrees.toStringAsFixed(1)}\u00b0'}'
+        '${isResolved ? '' : ', unresolved'})';
+  }
 }

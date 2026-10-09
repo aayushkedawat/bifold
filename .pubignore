@@ -1,0 +1,57 @@
+# What `dart pub publish` leaves out of the archive.
+#
+# IMPORTANT: pub ignores a directory's .gitignore when that directory has a
+# .pubignore, so this file cannot just list the extras — it has to repeat
+# everything .gitignore excludes as well. Keep the two in sync.
+
+# --- Not shipped, and the reason this file exists --------------------------
+#
+# README media. The README links these by absolute raw.githubusercontent.com
+# URL, so they render on GitHub and on pub.dev without being downloaded by
+# every `pub get`. The animation alone is 9 MB against a ~100 KB lib/.
+media/
+
+# The example app is a full Flutter app with its own iOS and Android projects.
+# pub.dev links to it on GitHub; shipping it would dwarf the package.
+example/
+
+# Local verification notes and the Phase 0 research record. Useful in the
+# repository, not to a consumer.
+docs/
+
+# --- Repeated from .gitignore ---------------------------------------------
+
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart/Pub related
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+.flutter-plugins-dependencies
+/build/
+/coverage/
+
+# Local agent instructions and working notes, not part of the package.
+Claude.md
+CLAUDE.md
+Claude.v0.1.md
+Claude_*.md
+docs/phase0*.md

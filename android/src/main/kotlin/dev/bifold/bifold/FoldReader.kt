@@ -79,7 +79,7 @@ internal class FoldReader(context: Context) {
     this.hingeRadians = hingeRadians
   }
 
-  fun payload(hingeSensorPresent: Boolean): Map<String, Any?> {
+  fun payload(hingeSensorPresent: Boolean, capabilityRevision: Int): Map<String, Any?> {
     val activity = activity
     val density = (activity ?: appContext).resources.displayMetrics.density.toDouble()
     val folds = latest?.displayFeatures?.filterIsInstance<FoldingFeature>() ?: emptyList()
@@ -96,6 +96,14 @@ internal class FoldReader(context: Context) {
       "verticalSizeClass" to verticalSizeClass(activity, density),
       // Android has no system vertical bar to reserve an edge for.
       "verticalBarEdge" to "unspecified",
+      // Whether anything has actually been established. Window layout info
+      // arrives asynchronously, so the first payload after attaching can be
+      // built before any of it has: a sticky signal (the device declares a
+      // hinge, or a fold was seen earlier in this process) resolves, and
+      // nothing else does. Dart reads this strictly, so an omitted key would
+      // read as a confident "there is no fold".
+      "isResolved" to (declaresHinge || everSawFold || latest != null),
+      "capabilityRevision" to capabilityRevision,
     )
   }
 
@@ -144,14 +152,44 @@ internal class FoldReader(context: Context) {
    * laying out around exactly when it currently divides the window, which is
    * the same thing iOS's active division means.
    */
+  /// How far the app's content sits from the window's top-left, in pixels.
+  ///
+  /// `FoldingFeature.bounds` is relative to the **window**, while Dart
+  /// documents `FoldRegion.frame` as relative to the Flutter **view** -- and
+  /// iOS genuinely delivers view-relative points. Where the two differ, the
+  /// same field meant different things on each platform, and
+  /// `FoldRegion.isSeparating(viewSize)` -- which `BifoldSplit` keys off --
+  /// could decide a full-width fold did not span the box.
+  ///
+  /// Measured from `android.R.id.content`, which is the view the activity's
+  /// content is placed in, so this is correct for the ordinary case of one
+  /// Flutter view filling that content area.
+  ///
+  /// UNVERIFIED: a Flutter view that does not fill the content area -- an
+  /// embedded `FlutterFragment` beside other views, or a partial-screen
+  /// multi-window layout -- needs the view's own offset, which this plugin
+  /// does not hold a reference to. The offset is zero in every configuration
+  /// observed on the `pixel_9_pro_fold` and flip-style emulators, including
+  /// split-screen, so this has never been seen to be non-zero. Recorded in
+  /// API_NOTES.md.
+  private fun contentOffsetInWindow(): Pair<Int, Int> {
+    // UNVERIFIED: see the note above.
+    val content = activity?.findViewById<android.view.View>(android.R.id.content)
+      ?: return 0 to 0
+    val location = IntArray(2)
+    content.getLocationInWindow(location)
+    return location[0] to location[1]
+  }
+
   private fun region(fold: FoldingFeature, density: Double): Map<String, Any?> {
     val bounds = fold.bounds
+    val (offsetX, offsetY) = contentOffsetInWindow()
     return mapOf(
       "kind" to "division",
-      "left" to bounds.left / density,
-      "top" to bounds.top / density,
-      "right" to bounds.right / density,
-      "bottom" to bounds.bottom / density,
+      "left" to (bounds.left - offsetX) / density,
+      "top" to (bounds.top - offsetY) / density,
+      "right" to (bounds.right - offsetX) / density,
+      "bottom" to (bounds.bottom - offsetY) / density,
       "marginLeft" to 0.0,
       "marginTop" to 0.0,
       "marginRight" to 0.0,
@@ -206,6 +244,12 @@ internal class FoldReader(context: Context) {
       "horizontalSizeClass" to "unspecified",
       "verticalSizeClass" to "unspecified",
       "verticalBarEdge" to "unspecified",
+      // This is sent when there is no reader to ask -- no activity attached
+      // yet -- so nothing has been established. It is deliberately not the
+      // same as proving the device has no fold, which is what Dart's
+      // FoldInfo.none means.
+      "isResolved" to false,
+      "capabilityRevision" to 0,
     )
   }
 }

@@ -2,6 +2,7 @@ package dev.bifold.bifold
 
 import android.app.Activity
 import android.os.Binder
+import androidx.window.core.ExperimentalWindowApi
 import androidx.window.area.WindowAreaCapability
 import androidx.window.area.WindowAreaController
 import androidx.window.area.WindowAreaInfo
@@ -32,6 +33,11 @@ import java.util.concurrent.Executor
  * [WindowAreaPresentationSessionCallback.onSessionEnded] is the only reliable
  * signal that it has.
  */
+// Every androidx.window.area symbol is @ExperimentalWindowApi. The
+// annotation is only RequiresOptIn.Level.WARNING, so this compiled without
+// saying so anywhere -- which hid the fact that the whole rear-display
+// feature rests on an API that can change without a major version.
+@OptIn(ExperimentalWindowApi::class)
 internal class RearDisplay(
   private val controller: WindowAreaController,
   private val executor: Executor,
@@ -97,6 +103,12 @@ internal class RearDisplay(
       executor,
       object : WindowAreaPresentationSessionCallback {
         override fun onSessionStarted(session: WindowAreaSessionPresenter) {
+          // Releasing first would be wrong here -- a second concurrent session
+          // is refused before the call is issued -- but overwriting these
+          // without releasing is what would leak if that guard ever moved.
+          if (presentationSession != null) {
+            releasePresentation()
+          }
           presentationSession = session
           // A second engine, because one engine renders one view tree. The
           // entrypoint must be annotated @pragma('vm:entry-point') or the
@@ -114,10 +126,37 @@ internal class RearDisplay(
           val created = group.createAndRunEngine(session.context, dartEntrypoint)
           val view = FlutterView(session.context)
           view.attachToFlutterEngine(created)
+          // FlutterActivityAndFragmentDelegate does this on resume, and
+          // nothing does it for an engine hosted outside an activity. Without
+          // it the framework's AppLifecycleState stays at whatever the engine
+          // defaulted to, which can leave the presented surface never
+          // producing a frame.
+          created.lifecycleChannel.appIsResumed()
           engine = created
           flutterView = view
           session.setContentView(view)
           onStatusChanged()
+
+          // What the presented engine can and cannot see.
+          //
+          // createAndRunEngine registers plugins by default, so this engine
+          // carries its own BifoldPlugin -- but there is no
+          // ActivityPluginBinding for an engine hosted outside an activity, so
+          // it never gets onAttachedToActivity.
+          //
+          // It still reports isFoldable and a live hinge angle, because both
+          // come from the engine-scoped readers built in onAttachedToEngine
+          // from the application context: the hinge is a SensorManager
+          // reading, which needs no activity. That is what a hinge-reactive
+          // UI on the outer display needs, and it did not work before the
+          // readers were moved out of the activity scope.
+          //
+          // It cannot report pose or reserved regions. Those come from
+          // WindowInfoTracker, whose listener is registered against an
+          // activity, and the presentation's own display has no activity to
+          // register against. Documented in API_NOTES.md rather than papered
+          // over: a payload that guessed a pose here would be worse than one
+          // that says `unknown`.
         }
 
         override fun onSessionEnded(t: Throwable?) {

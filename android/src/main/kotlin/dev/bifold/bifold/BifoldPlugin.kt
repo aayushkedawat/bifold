@@ -7,6 +7,7 @@ import android.os.Looper
 import android.view.Surface
 import android.view.View
 import androidx.core.util.Consumer
+import androidx.window.core.ExperimentalWindowApi
 import androidx.window.area.WindowAreaController
 import androidx.window.area.WindowAreaInfo
 import androidx.window.java.area.WindowAreaControllerCallbackAdapter
@@ -79,12 +80,27 @@ class BifoldPlugin :
    */
   private var lastCapabilities: Map<String, Any?>? = null
 
-  private val mainExecutor = Executor { Handler(Looper.getMainLooper()).post(it) }
+  private val mainHandler = Handler(Looper.getMainLooper())
+
+  /// Runs work on the main thread, immediately when already there.
+  ///
+  /// Allocated one Handler per dispatch before, and always posted -- so every
+  /// callback cost an allocation and a frame of latency even when it was
+  /// already on the right thread. androidx wraps this in
+  /// `executor.asCoroutineDispatcher()`, so it is on a warm path.
+  private val mainExecutor = Executor { command ->
+    if (Looper.myLooper() == mainHandler.looper) {
+      command.run()
+    } else {
+      mainHandler.post(command)
+    }
+  }
 
   private val layoutListener = Consumer<WindowLayoutInfo> { info ->
     reader?.update(info)
     capabilities?.observeFolds(
       info.displayFeatures.filterIsInstance<FoldingFeature>(),
+      displayRotation(),
     )
     emit()
   }
@@ -98,6 +114,24 @@ class BifoldPlugin :
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     reader = FoldReader(binding.applicationContext)
     capabilities = CapabilityReader(binding.applicationContext)
+    // The hinge sensor is read through a SensorManager, which needs a Context
+    // and not an Activity. Building it here rather than in bind() matters for
+    // correctness, not tidiness: while it was activity-scoped, any capability
+    // query before the first onAttachedToActivity found it null and reported
+    // `unsupported` with an authoritative source -- a false "this device has
+    // no hinge sensor" on a foldable -- and every fold, being a configuration
+    // change, unregistered the listener and pushed a null angle mid-gesture.
+    hinge = HingeReader(binding.applicationContext) { radians ->
+      reader?.update(radians)
+      emit()
+    }
+    // A rear-display session outlives the activity, and RearDisplay takes the
+    // activity per call rather than holding one, so this is engine-scoped too.
+    rearDisplay = RearDisplay(
+      WindowAreaController.getOrCreate(),
+      mainExecutor,
+      ::emitRearDisplay,
+    )
     methodChannel = MethodChannel(binding.binaryMessenger, "dev.bifold/methods")
     methodChannel.setMethodCallHandler(this)
     eventChannel = EventChannel(binding.binaryMessenger, "dev.bifold/fold_info")
@@ -119,11 +153,24 @@ class BifoldPlugin :
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    // Final teardown. This used to leave the sensor listener registered, the
+    // decor-view layout listener attached and the window-area coroutine job
+    // alive, which with two engines on one activity kept the plugin -- and
+    // through it the Activity -- reachable from a system service.
+    stopListening()
     methodChannel.setMethodCallHandler(null)
     eventChannel.setStreamHandler(null)
     rearDisplayChannel.setStreamHandler(null)
+    sink = null
+    rearDisplaySink = null
+    rearDisplay?.end()
+    rearDisplay = null
+    hinge = null
     reader = null
     capabilities = null
+    activity = null
+    tracker = null
+    areaController = null
   }
 
   /**
@@ -162,6 +209,10 @@ class BifoldPlugin :
 
   override fun onDetachedFromActivity() {
     unbind()
+    // The activity is going away for good rather than being recreated, so
+    // anything scoped to the app being on screen goes with it.
+    rearDisplay?.end()
+    rearDisplay = null
   }
 
   private fun bind(activity: Activity) {
@@ -169,43 +220,67 @@ class BifoldPlugin :
     reader?.attach(activity)
     tracker = WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(activity))
     areaController = WindowAreaControllerCallbackAdapter(WindowAreaController.getOrCreate())
-    rearDisplay = RearDisplay(
-      WindowAreaController.getOrCreate(),
-      mainExecutor,
-      ::emitRearDisplay,
-    )
-    hinge = HingeReader(activity) { radians ->
-      reader?.update(radians)
-      emit()
-    }
     if (sink != null) {
       startObserving()
     }
   }
 
+  /**
+   * Releases what is bound to the activity.
+   *
+   * Deliberately does NOT end a rear-display session. Folding is a
+   * configuration change, so this runs in the middle of the one gesture the
+   * package exists to report; ending the session here closed the presentation
+   * as the device folded, and `transferActivityToWindowArea` causes a
+   * configuration change by design, so transfer could never complete at all.
+   * A session outlives the activity and is ended in [onDetachedFromActivity]
+   * and [onDetachedFromEngine] instead.
+   */
   private fun unbind() {
     stopObserving()
     reader?.detach()
-    rearDisplay?.end()
-    rearDisplay = null
     activity = null
     tracker = null
     areaController = null
-    hinge = null
   }
 
+  /**
+   * Starts the observation that needs an activity.
+   *
+   * The hinge sensor is deliberately not started here: it is engine-scoped and
+   * follows whether anyone is listening, not which activity is current. See
+   * [startListening].
+   */
   private fun startObserving() {
     val activity = activity ?: return
     tracker?.addWindowLayoutInfoListener(activity, mainExecutor, layoutListener)
     activity.window?.decorView?.addOnLayoutChangeListener(layoutPassListener)
     areaController?.addWindowAreaInfoListListener(mainExecutor, areaListener)
-    hinge?.start()
   }
 
+  /**
+   * Stops the activity-scoped observation only.
+   *
+   * This runs on every configuration change, and folding is a configuration
+   * change. Unregistering the hinge sensor here cleared the angle to null in
+   * the middle of the fold gesture -- the one moment an app reading the angle
+   * cares about -- so the sensor is left to [stopListening].
+   */
   private fun stopObserving() {
     tracker?.removeWindowLayoutInfoListener(layoutListener)
     activity?.window?.decorView?.removeOnLayoutChangeListener(layoutPassListener)
     areaController?.removeWindowAreaInfoListListener(areaListener)
+  }
+
+  /** Begins everything that follows a Dart listener rather than an activity. */
+  private fun startListening() {
+    startObserving()
+    hinge?.start()
+  }
+
+  /** Ends it. Clearing the angle here is correct: nothing is reading it. */
+  private fun stopListening() {
+    stopObserving()
     hinge?.stop()
   }
 
@@ -253,15 +328,17 @@ class BifoldPlugin :
   }
 
   private fun currentPayload(): Map<String, Any?> =
-    reader?.payload(hingeSensorPresent = hinge?.isPresent == true)
+    reader?.payload(
+      hingeSensorPresent = hinge?.isPresent == true,
+      capabilityRevision = capabilities?.revision ?: 0,
+    )
       ?: FoldReader.unsupportedPayload()
 
   private fun currentCapabilities(): Map<String, Any?> =
-    capabilities?.payload(
-      hingeSensorPresent = hinge?.isPresent == true,
-      rotation = displayRotation(),
-    )
+    capabilities?.payload(hingeSensorPresent = hinge?.isPresent == true)
       ?: mapOf(
+        "version" to BIFOLD_PAYLOAD_VERSION,
+        "platform" to "android",
         "isResolved" to false,
         "formFactor" to "unknown",
         "rearDisplayModes" to emptyList<String>(),
@@ -295,7 +372,10 @@ class BifoldPlugin :
       appendLine("bifold on Android")
       appendLine("  android.os.Build.VERSION.SDK_INT: ${android.os.Build.VERSION.SDK_INT}")
       appendLine("  model: ${android.os.Build.MODEL}")
-      appendLine("  androidx.window: 1.2.0")
+      // Read from the build rather than typed in: a hardcoded version here
+      // would keep reporting 1.2.0 after the dependency moved, in the one
+      // string whose whole purpose is to be accurate in a bug report.
+      appendLine("  androidx.window: ${BuildConfig.WINDOW_VERSION}")
       appendLine("  hinge angle sensor present: ${hinge?.isPresent == true}")
       appendLine("  activity attached: ${activity != null}")
     }
@@ -305,7 +385,7 @@ class BifoldPlugin :
 
   override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
     sink = events
-    startObserving()
+    startListening()
     // Emit at once so the first frame has something rather than waiting for
     // the first layout callback, which may never come on a device with no
     // fold to report.
@@ -313,7 +393,7 @@ class BifoldPlugin :
   }
 
   override fun onCancel(arguments: Any?) {
-    stopObserving()
+    stopListening()
     sink = null
     lastPayload = null
     lastCapabilities = null

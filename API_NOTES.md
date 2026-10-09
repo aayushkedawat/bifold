@@ -398,6 +398,114 @@ Sufficient, not necessary: a foldable with no hinge angle sensor would report
 false here and still be caught by having seen a folding feature earlier in the
 process.
 
+## Arrangements
+
+The riskiest iOS surface in this package, and until 1.0.0 the only one with no
+entry here — which was a ground-rule-2 violation, not an oversight worth
+leaving. `ArrangementOracle` uses these to ask UIKit where *it* would place two
+panes, and it does so by adding a child view controller to the host, so a wrong
+assumption here changes the app's own view hierarchy rather than just returning
+a bad number.
+
+Verified 2026-10-09 by Objective-C runtime introspection against the iOS 27.1
+SDK, cross-read with the header quotes recorded in `ArrangementOracle.swift`.
+Type encodings are the real ones reported by the runtime.
+
+### `UIArrangementViewController`
+
+```objc
+// UIArrangementViewController.h
+- (void)setViewController:(UIViewController *)viewController
+             forPlacement:(UIArrangementViewControllerViewPlacement)placement;  // v32@0:8@16q24
+- (nullable UIArrangementViewState *)stateForPlacement:(UIArrangementViewControllerViewPlacement)placement;  // @24@0:8q16
+- (void)updateArrangement:(UIArrangement *)arrangement;
+```
+
+iOS 27.1. Resolved by `NSClassFromString("UIArrangementViewController")` and
+`instancesRespond(to:)` before any call, so an OS without it degrades to
+`BifoldArrangement.measure` returning null rather than failing.
+
+`stateForPlacement:` returns an autoreleased object and is called through
+`objc_msgSend` typed to return `AnyObject?` rather than
+`Unmanaged<AnyObject>?`. That is correct — Swift treats a `@convention(c)`
+function returning a class type as +0 and inserts the retain — but it is the
+opposite convention from `HingeReader.makeInteraction`, which uses `Unmanaged`
+because it owns an `alloc`/`init` pair. Both sites carry a comment saying
+which rule applies, because "fixing" one to match the other would introduce a
+double release.
+
+### `UIArrangementViewControllerViewPlacement`
+
+```objc
+typedef NS_ENUM(NSInteger, UIArrangementViewControllerViewPlacement) {
+    UIArrangementViewControllerViewPlacementPrimary = 0,
+    UIArrangementViewControllerViewPlacementSecondary = 1,
+};
+```
+
+iOS 27.1. Plain `NSInteger` values, passed as the scalar argument that makes
+`perform(_:with:)` unusable and `objc_msgSend` necessary.
+
+### `UISplitArrangement`
+
+```objc
++ (instancetype)splitArrangement;
+- (void)setAxes:(UIAxis)axes;  // v24@0:8Q16
+```
+
+iOS 27.1. **UNVERIFIED as a header symbol.** Found by runtime introspection
+only: `NSClassFromString("UISplitArrangement")` resolves and both selectors
+respond on a booted iPhone Duo simulator running iOS 27.1, but no public
+header declaring it was located, and it has no documentation page on
+developer.apple.com. `ArrangementOracle.swift` marks it `(runtime)` for this
+reason. It is the single most likely symbol in the package to be renamed
+before iOS 27.1 reaches general availability, and because resolution is by
+name at runtime, a rename makes `BifoldArrangement.measure` return null
+silently. `Bifold.diagnosticReport()` now states explicitly when an expected
+fold symbol fails to resolve on iOS 27.1 or later, which is the mitigation.
+
+### `UIAxis`
+
+```objc
+typedef NS_OPTIONS(NSUInteger, UIAxis) {
+    UIAxisNeither = 0,
+    UIAxisHorizontal = 1 << 0,
+    UIAxisVertical = 1 << 1,
+    UIAxisBoth = UIAxisHorizontal | UIAxisVertical,
+};
+```
+
+iOS 13.4 onwards for the type itself; used here with 27.1 arrangements. An
+`NSUInteger` option set, hence the `Q` in `setAxes:`'s encoding.
+
+### `UIArrangementViewState`
+
+```objc
+@property (readonly) CGRect frame;
+@property (readonly, getter=isHidden) BOOL hidden;
+```
+
+iOS 27.1. Read by KVC through verified property names, like every other KVC
+read in this package. A pane reported hidden is how UIKit says its own
+arrangement has collapsed to one pane, which is what
+`ArrangementMeasurement.isSplit` reports.
+
+### `UIDevice.userInterfaceIdiom` as a fold signal
+
+```objc
+@property (nonatomic, readonly) UIUserInterfaceIdiom userInterfaceIdiom;
+```
+
+Long-standing public API, used here only to *exclude* iPad from fold claims.
+
+**It is no longer used as positive evidence.** Until 1.0.0, `FoldReader`
+fell back to `userInterfaceIdiom == .phone` when no hinge had yet been
+observed, which made every iPhone on a release carrying the fold APIs report
+`isFoldable: true` — and, because `readDisplay` returns `outer` for any
+non-regular trait collection, `pose: closed` in portrait on an ordinary phone.
+The idiom says nothing about whether a device folds, so fold evidence now
+comes only from an observed hinge or an observed division region.
+
 ## Observed emulator behaviour
 
 On `pixel_9_pro_fold`, `android-37.2`, inner display 2076x2152 at 390dpi and
@@ -466,6 +574,81 @@ produces no `onSessionEnded` callback and `WindowAreaInfo` keeps reporting
 The second engine is destroyed correctly so nothing leaks, but the reported
 status stays `active`. `bifold` passes that through rather than substituting a
 value the platform is not reporting. Unverified on hardware.
+
+## Android embedding and coordinate spaces
+
+Verified 2026-10-09 against `window-1.2.0-sources.jar`,
+`window-java-1.2.0-sources.jar` and `android.jar` (API 36) from the local
+Gradle cache, rather than from documentation.
+
+### `FoldingFeature.bounds` is window-relative
+
+Dart documents `FoldRegion.frame` as logical pixels relative to the Flutter
+**view**, and iOS delivers exactly that. `FoldingFeature.bounds` is relative
+to the **window**. The two coincide whenever one Flutter view fills the
+activity's content area, which is the ordinary case, and diverge otherwise.
+
+`FoldReader.contentOffsetInWindow()` translates by the location of
+`android.R.id.content` in the window, which makes the common case correct.
+
+**UNVERIFIED:** a Flutter view that does not fill the content area — an
+embedded `FlutterFragment` beside other views, or a partial-screen
+multi-window layout — needs the view's own offset, and this plugin holds no
+reference to the `FlutterView`. The offset measured zero in every
+configuration exercised on the `pixel_9_pro_fold` and flip-style emulators,
+including split-screen, so a non-zero value has never actually been observed.
+The code carries a `// UNVERIFIED` marker at that method.
+
+### The presented engine's view of fold state
+
+`FlutterEngineGroup.createAndRunEngine(Context, DartEntrypoint)` registers
+plugins by default, so a rear-display presentation's engine carries its own
+`BifoldPlugin`. There is no `ActivityPluginBinding` for an engine hosted
+outside an activity, so that instance never receives
+`onAttachedToActivity`.
+
+What it **can** report: `isFoldable` and a live hinge angle. Both come from
+readers built in `onAttachedToEngine` from the application context, and
+`Sensor.TYPE_HINGE_ANGLE` is read through a `SensorManager`, which needs a
+`Context` and not an `Activity`. This is what a hinge-reactive UI on the outer
+display needs, and it did not work while those readers were activity-scoped.
+
+What it **cannot** report: `pose` and reserved regions. Those come from
+`WindowInfoTracker`, whose listener is registered against an activity
+(`WindowInfoTrackerCallbackAdapter.addWindowLayoutInfoListener(Activity,
+Executor, Consumer)`), and a presentation's display has no activity. The
+payload reports `pose: unknown` and no regions there, which is the honest
+answer rather than a guess.
+
+### `FlutterEngine.lifecycleChannel.appIsResumed()`
+
+`FlutterActivityAndFragmentDelegate` calls this on resume, and nothing calls
+it for an engine hosted outside an activity. `RearDisplay` now calls it after
+attaching the `FlutterView`; without it the framework's `AppLifecycleState`
+stays at whatever the engine defaulted to.
+
+### `@ExperimentalWindowApi`
+
+Every `androidx.window.area` symbol carries it
+(`androidx/window/core/ExperimentalWindowApi.kt`), at
+`RequiresOptIn.Level.WARNING`. That level is why the whole rear-display
+feature compiled without anything in the source acknowledging it rests on an
+experimental API. `RearDisplay`, `CapabilityReader` and `BifoldPlugin` now
+carry an explicit `@OptIn(ExperimentalWindowApi::class)`.
+
+### `EmptyWindowAreaControllerImpl`
+
+When the window extensions are absent, `WindowAreaController.getOrCreate()`
+returns this implementation, whose `windowAreaInfos` emits exactly one empty
+list (`EmptyWindowAreaControllerImpl.kt:32-33`), and whose session callbacks
+invoke `onSessionEnded(IllegalStateException)` **synchronously on the calling
+thread** rather than through the supplied executor
+(`EmptyWindowAreaControllerImpl.kt:44-52`).
+
+The first fact is why an empty list *after* a report is treated as an
+authoritative `unsupported` rather than as "not yet reported". The second is
+why `releasePresentation()` must be safe to run re-entrantly inside
+`present()`.
 
 ### UNVERIFIED
 

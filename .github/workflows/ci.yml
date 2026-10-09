@@ -49,9 +49,18 @@ jobs:
           lib test example/lib example/test example/integration_test
 
       # Includes test/readme/readme_examples_test.dart, which compile-checks
-      # every snippet in the README.
+      # the README snippets that have been transcribed into it. It cannot
+      # detect a snippet nobody copied, so adding a README example means
+      # adding it there too.
       - name: Test
         run: flutter test
+
+      # The example's own tests, including the three downstream consumers that
+      # are the package's proof that no app needs a Platform.isIOS branch.
+      # These used to run only on a developer's machine.
+      - name: Test the example
+        run: flutter test
+        working-directory: example
 
       - name: Analyse the example
         run: flutter analyze
@@ -62,6 +71,27 @@ jobs:
       # published version cannot be taken back.
       - name: Check the package publishes cleanly
         run: flutter pub publish --dry-run
+
+      # `pub publish --dry-run` reports 0 warnings while shipping whatever is
+      # in the tree -- a stray 9 MB screen recording once made the archive 7 MB
+      # against a ~100 KB lib/. .pubignore keeps media and the example out;
+      # this makes a regression fail the build rather than reach pub.dev.
+      - name: Check the archive stays small
+        run: |
+          size=$(flutter pub publish --dry-run 2>&1 \
+            | sed -n 's/.*Total compressed archive size: \(.*\)\./\1/p')
+          echo "archive: $size"
+          case "$size" in
+            *MB*)
+              whole=${size%%.*}
+              whole=${whole%% *}
+              if [ "${whole:-0}" -ge 2 ]; then
+                echo "::error::Archive is $size. Something large is being" \
+                  "published -- check .pubignore."
+                exit 1
+              fi
+              ;;
+          esac
 
   android:
     name: Build the example for Android
@@ -78,8 +108,10 @@ jobs:
           channel: stable
           cache: true
 
-      # The plugin declares no Android implementation, so this proves the
-      # package still builds and links where it has no native side at all.
+      # Builds the example against the plugin's own Android module, which has
+      # existed since 0.2.0. Graceful degradation where there is no native
+      # side at all is covered by the Dart tests instead, which assert that a
+      # MissingPluginException resolves to FoldInfo.none.
       - name: Build
         run: flutter build apk --debug
         working-directory: example
@@ -113,4 +145,29 @@ jobs:
       # local step -- see doc/manual-tests.md.
       - name: Build
         run: flutter build ios --no-codesign --debug
+        working-directory: example
+
+      # The plugin's Swift tests, which run against the real native
+      # implementation on a simulator. Until 1.0.0 the only Swift test in the
+      # repo was the untouched Flutter template -- it called a method this
+      # plugin does not implement and would have crashed on its force-cast,
+      # and nothing ever ran it. So the entire iOS native side was compiled
+      # but never executed.
+      #
+      # An iPhone Duo simulator and an iOS 27.1 runtime are not available on
+      # hosted runners, so these assert payload shape and the rules that hold
+      # on any device -- including that no capability claims support while the
+      # fold itself is unestablished, which is exactly what a non-foldable
+      # simulator can prove.
+      # Deliberately unpiped. Piping xcodebuild through a formatter hands the
+      # step the formatter's exit code, which is how a failing test run can
+      # report success -- it happened while writing these tests.
+      - name: Test the Swift plugin
+        run: >
+          xcodebuild test
+          -workspace ios/Runner.xcworkspace
+          -scheme Runner
+          -destination 'platform=iOS Simulator,name=iPhone 17'
+          -only-testing:RunnerTests
+          -quiet
         working-directory: example

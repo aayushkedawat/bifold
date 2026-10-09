@@ -1,7 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+// Imported for the guarded-stream plumbing, which this file shares with the
+// fold and rear-display streams rather than keeping a third copy of. The
+// deprecated accessory keeps its own channels because the native side still
+// has them; only the guard is shared.
+import 'method_channel_bifold.dart';
 
 /// Shows app content on the outer display while the camera is capturing.
 ///
@@ -44,6 +48,13 @@ import 'package:flutter/services.dart';
 ///
 /// Every method here resolves to a no-op or `false` on unsupported platforms
 /// rather than throwing.
+@Deprecated(
+  'Use BifoldRearDisplay, which covers this behaviour on both platforms '
+  'behind one API: present() replaces register() plus setEnabled(true), '
+  'end() replaces unregister(), and availability reports four states rather '
+  'than a boolean so "unsupported" and "not right now" can be told apart. '
+  'This class keeps working and will be removed in 2.0.0.',
+)
 abstract final class BifoldCaptureAccessory {
   static const MethodChannel _methods = MethodChannel('dev.bifold/methods');
   static const EventChannel _events = EventChannel(
@@ -149,10 +160,26 @@ abstract final class BifoldCaptureAccessory {
   /// Emits the current value on listen. On unsupported platforms it emits
   /// `false` and stays open, so a UI can bind to it unconditionally.
   static Stream<bool> get availability {
-    return _availability ??= _events
-        .receiveBroadcastStream()
-        .map((Object? event) => event == true)
-        .handleError((Object _) {})
-        .asBroadcastStream();
+    return _availability ??= guardedEventChannelStream<bool>(
+      channel: _events,
+      probe: () => nativeSideIsPresent(_methods, 'captureAccessorySupported'),
+      decode: (Object? event) => event == true,
+      absent: false,
+      errorContext: 'listening for capture accessory availability',
+    );
+  }
+
+  /// Drops the cached [availability] stream. Tests only.
+  ///
+  /// The stream is memoised so that several listeners share one native
+  /// subscription, and it is the first `listen` that makes the native side
+  /// start reporting. Within one test file that made the memo a trap: the
+  /// first test's subscription is already open, so a second test that
+  /// installs a fresh mock handler is never listened to and waits forever for
+  /// a value. Resubscription in a running app is a different thing and does
+  /// not need this.
+  @visibleForTesting
+  static void debugResetAvailability() {
+    _availability = null;
   }
 }

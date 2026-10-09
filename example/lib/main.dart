@@ -9,12 +9,25 @@ import 'pages/reader_page.dart';
 import 'pages/studio_page.dart';
 import 'widgets/hinge_gauge.dart';
 
-/// Content the system may show on the outer display during camera capture.
+/// Content the system may show on the display facing the rear camera.
 ///
 /// This runs in its own Flutter engine, so it is a separate entrypoint. The
 /// pragma keeps it from being tree-shaken out of a release build.
+///
+/// Wrapped in its own [BifoldScope]: a second engine is a separate Dart
+/// isolate with its own widget tree, so it does not inherit the scope from
+/// `main`. Without one, content on the rear display could not react to the
+/// hinge at all — which, on a device being folded while the subject watches,
+/// is the whole point.
 @pragma('vm:entry-point')
-void captureAccessoryMain() => runApp(const SubjectView());
+void rearDisplayMain() => runApp(const BifoldScope(child: SubjectView()));
+
+/// The previous name for [rearDisplayMain].
+///
+/// Kept so an app still calling `BifoldCaptureAccessory.register` with this
+/// entrypoint keeps working.
+@pragma('vm:entry-point')
+void captureAccessoryMain() => rearDisplayMain();
 
 void main() {
   // One scope at the root. Everything below it can read fold state.

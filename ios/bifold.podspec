@@ -4,14 +4,15 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'bifold'
-  s.version          = '0.0.1'
-  s.summary          = 'A new Flutter plugin project.'
+  s.version          = '1.0.0'
+  s.summary          = 'Fold awareness for iPhone Duo and Android foldables.'
   s.description      = <<-DESC
-A new Flutter plugin project.
+Hinge angle, pose, fold regions, device capabilities, rear display and
+fold-aware layout widgets, behind one API on iOS and Android.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/aayushkedawat/bifold'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'Aayush Kedawat' => 'aayushkedawat@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files = 'bifold/Sources/bifold/**/*'
   s.dependency 'Flutter'

@@ -69,6 +69,19 @@ final class CaptureAccessory: NSObject {
   private weak var host: UIViewController?
   private var lastAvailability: Bool?
 
+  /// Watches the host's layout passes so availability keeps refreshing.
+  ///
+  /// Held strongly, like the fold observation's own sentinel, so [detach] can
+  /// still reach it to remove it.
+  ///
+  /// This exists because `refreshAvailability()` used to be driven only by the
+  /// *fold* stream's sentinel, which exists only while something is listening
+  /// to fold state. An app that bound `BifoldRearDisplay.availability` without
+  /// also subscribing to the hinge therefore got one value at listen time and
+  /// then nothing, ever. Availability is independent of fold state, so it gets
+  /// its own hook on the lifecycle event Apple names.
+  private var sentinel: LayoutSentinel?
+
   private init(entrypoint: String, libraryURI: String?) {
     self.entrypoint = entrypoint
     self.libraryURI = libraryURI
@@ -163,6 +176,15 @@ final class CaptureAccessory: NSObject {
 
     registration = created
     self.host = host
+
+    // Attach our own layout watcher, so availability refreshes whether or not
+    // anything is listening to the fold stream.
+    let watcher = LayoutSentinel(frame: host.view.bounds)
+    watcher.onLayout = { [weak self] in
+      self?.refreshAvailability()
+    }
+    host.view.addSubview(watcher)
+    sentinel = watcher
     lastAvailability = nil
     return true
   }
@@ -183,6 +205,9 @@ final class CaptureAccessory: NSObject {
 
   private func detach() {
     lastAvailability = nil
+    sentinel?.onLayout = nil
+    sentinel?.removeFromSuperview()
+    sentinel = nil
     if let registration, let host {
       let selector = NSSelectorFromString("unregisterSceneAccessory:")
       if host.responds(to: selector) {

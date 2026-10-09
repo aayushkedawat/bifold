@@ -20,6 +20,12 @@ let package = Package(
             dependencies: [
                 .product(name: "FlutterFramework", package: "FlutterFramework")
             ],
+            // No resources. A PrivacyInfo.xcprivacy used to sit in Sources/
+            // bundled by neither this target nor the podspec, which with
+            // SwiftPM also made it an unhandled-resource build warning and
+            // with CocoaPods swept it in as a source file. This plugin calls
+            // no required-reason API and is not on Apple's listed-SDK list, so
+            // no manifest is required -- and a dead one is worse than none.
             resources: [
                 // If your plugin requires a privacy manifest, for example if it uses any required
                 // reason APIs, update the PrivacyInfo.xcprivacy file to describe your plugin's

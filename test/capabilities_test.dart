@@ -255,13 +255,128 @@ void main() {
       expect(FoldInfo.unsupported, isNot(FoldInfo.none));
     });
 
-    test('a decoded payload is resolved even without the key', () {
-      final info = FoldInfo.fromMap(<Object?, Object?>{
-        'version': 1,
-        'isFoldable': false,
-      });
-      expect(info.isResolved, isTrue,
-          reason: 'the platform answered, which is what resolved means');
+    test('a decoded payload resolves only when the platform says so', () {
+      expect(
+        FoldInfo.fromMap(<Object?, Object?>{
+          'version': 1,
+          'isFoldable': false,
+        }).isResolved,
+        isFalse,
+        reason: 'no isResolved key means the platform claimed no answer',
+      );
+      expect(
+        FoldInfo.fromMap(<Object?, Object?>{
+          'version': 1,
+          'isFoldable': false,
+          'isResolved': true,
+        }).isResolved,
+        isTrue,
+      );
+    });
+  });
+
+  group('CapabilityResolver invariants', () {
+    BifoldCapabilities report({
+      required FoldFeature feature,
+      required CapabilityStatus status,
+      String? source,
+      FoldFormFactor formFactor = FoldFormFactor.unknown,
+      Map<String, Object?> raw = const <String, Object?>{},
+    }) =>
+        BifoldCapabilities(
+          evidence: <FoldFeature, CapabilityEvidence>{
+            feature: CapabilityEvidence(status: status, source: source),
+          },
+          formFactor: formFactor,
+          rearDisplayModes: const <RearDisplayMode>{},
+          isResolved: true,
+          raw: raw,
+        );
+
+    test('a sourced unknown never undoes an authoritative negative', () {
+      // Regression: a fresh report explaining *why* it saw nothing used to
+      // replace a settled negative, turning "this device has no hinge sensor"
+      // back into "nobody knows".
+      final resolver = CapabilityResolver();
+      resolver.absorb(report(
+        feature: FoldFeature.hingeAngle,
+        status: CapabilityStatus.unsupported,
+        source: 'android.sensor.TYPE_HINGE_ANGLE_absent',
+      ));
+      resolver.absorb(report(
+        feature: FoldFeature.hingeAngle,
+        status: CapabilityStatus.unknown,
+        source: 'android.activity_not_attached',
+      ));
+      expect(
+        resolver.current.statusOf(FoldFeature.hingeAngle),
+        CapabilityStatus.unsupported,
+      );
+    });
+
+    test('a positive still overturns a negative', () {
+      final resolver = CapabilityResolver();
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.unsupported,
+        source: 'bifold.no_platform_implementation',
+      ));
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.supported,
+        source: 'android.feature.hinge_angle',
+      ));
+      expect(resolver.current.hasFold, isTrue);
+    });
+
+    test('hasFold is never true alongside formFactor none', () {
+      // Regression: absorbing BifoldCapabilities.none -- which the channel
+      // does on a null payload or a missing plugin -- latched the form factor
+      // on "not a folding device", and a later report proving a fold while
+      // the shape was still unknown left the two contradicting each other.
+      final resolver = CapabilityResolver();
+      resolver.absorb(BifoldCapabilities.none);
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.supported,
+        source: 'android.feature.hinge_angle',
+      ));
+      expect(resolver.current.hasFold, isTrue);
+      expect(resolver.current.formFactor, FoldFormFactor.unknown);
+    });
+
+    test('a known shape wins, and is not downgraded later', () {
+      final resolver = CapabilityResolver();
+      resolver.absorb(BifoldCapabilities.none);
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.supported,
+        formFactor: FoldFormFactor.book,
+      ));
+      expect(resolver.current.formFactor, FoldFormFactor.book);
+      // Folding shut stops the platform describing the shape; it does not
+      // change it.
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.supported,
+      ));
+      expect(resolver.current.formFactor, FoldFormFactor.book);
+    });
+
+    test('raw is merged across reports, not replaced', () {
+      final resolver = CapabilityResolver();
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.unknown,
+        raw: const <String, Object?>{'platform': 'android', 'apiLevel': 34},
+      ));
+      resolver.absorb(report(
+        feature: FoldFeature.fold,
+        status: CapabilityStatus.unknown,
+        raw: const <String, Object?>{'apiLevel': 35},
+      ));
+      expect(resolver.current.raw['platform'], 'android');
+      expect(resolver.current.raw['apiLevel'], 35);
     });
   });
 }

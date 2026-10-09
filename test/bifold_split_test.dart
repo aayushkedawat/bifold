@@ -269,8 +269,135 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      // Stacked, not split: each pane gets half of the 200.
+      // Not split -- there is no crease inside this box -- so the fallback
+      // decides. The default is adaptive, and the device reports a regular
+      // inner display, so the panes sit side by side and keep the full
+      // height rather than being stacked into 100 each.
+      expect(rectOf(tester, 'start').height, 200);
+      expect(rectOf(tester, 'start').width, 400);
+    });
+
+    testWidgets('an explicit stack fallback still stacks', (tester) async {
+      tester.view
+        ..physicalSize = kViewSize
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: BifoldScope.fake(
+            info: FoldInfoFakes.partiallyOpen(viewSize: kViewSize),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                height: 200,
+                width: 800,
+                child: BifoldSplit(
+                  start: const _Pane('start'),
+                  end: const _Pane('end'),
+                  fallback: BifoldSplitFallback.stack,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
       expect(rectOf(tester, 'start').height, 100);
+    });
+  });
+
+  group('adaptive fallback', () {
+    testWidgets('stacks on a narrow box with no size class', (tester) async {
+      // No native side, so no size class is reported and the width decides.
+      // 320 is below kBifoldRegularWidthBreakpoint.
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: BifoldScope.fake(
+            info: FoldInfo.none,
+            child: Center(
+              child: SizedBox(
+                width: 320,
+                height: 600,
+                child: BifoldSplit(
+                  start: const _Pane('start'),
+                  end: const _Pane('end'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(rectOf(tester, 'start').width, 320);
+      expect(rectOf(tester, 'start').height, 300);
+    });
+
+    testWidgets('goes side by side on a wide box with no size class',
+        (tester) async {
+      // Desktop and web land here: plenty of width, no fold, no size class.
+      // This is the case that used to stack two panes on a wide window.
+      tester.view
+        ..physicalSize = const Size(1400, 900)
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: BifoldScope.fake(
+            info: FoldInfo.none,
+            child: Center(
+              child: SizedBox(
+                width: 1200,
+                height: 800,
+                child: BifoldSplit(
+                  start: const _Pane('start'),
+                  end: const _Pane('end'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(rectOf(tester, 'start').width, 600);
+      expect(rectOf(tester, 'start').height, 800);
+    });
+
+    testWidgets('a reported size class beats the measured width',
+        (tester) async {
+      // The widget may hold a fraction of the window, so the platform's own
+      // size class is the better signal where there is one. A compact device
+      // stacks even in a box wide enough to tempt the width check.
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: BifoldScope.fake(
+            info: FoldInfoFakes.closed,
+            child: Center(
+              child: SizedBox(
+                width: 1000,
+                height: 600,
+                child: BifoldSplit(
+                  start: const _Pane('start'),
+                  end: const _Pane('end'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(rectOf(tester, 'start').height, 300,
+          reason: 'closed reports compact, so stack despite the wide box');
     });
   });
 }

@@ -4,7 +4,6 @@ import 'package:bifold/bifold.dart';
 import 'package:bifold/src/method_channel_bifold.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 void main() {
   group('BifoldScope.fake', () {
@@ -245,6 +244,9 @@ void main() {
       expect(platform.getFoldInfoCalls, 0);
     });
   });
+
+  _aspectTests();
+  _tokenIsEnforcedTest();
 }
 
 /// Counts how many times fold state actually notified a dependent.
@@ -320,9 +322,163 @@ class _FakePlatform extends BifoldPlatform {
   Stream<FoldInfo> foldInfoStream() => _controller.stream;
 }
 
-/// Guards against the platform interface losing its token check, which would
-/// let an unrelated object be installed as the platform implementation.
-// ignore: unused_element
-void _tokenIsEnforced() {
-  PlatformInterface.verifyToken;
+/// The platform interface really does reject an untokenised implementation.
+///
+/// Replaces a function that was never invoked and whose body was a bare
+/// tear-off of `PlatformInterface.verifyToken` — so it would still have
+/// compiled and passed had `BifoldPlatform`'s setter dropped the check
+/// altogether, which is the regression it claimed to guard against.
+void _tokenIsEnforcedTest() {
+  test('an untokenised implementation cannot be installed', () {
+    expect(
+      () => BifoldPlatform.instance = _UntokenisedPlatform(),
+      throwsA(isA<AssertionError>()),
+    );
+  });
+}
+
+/// Implements the interface without going through its constructor, which is
+/// exactly what the token exists to catch.
+class _UntokenisedPlatform implements BifoldPlatform {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// The aspect accessors must rebuild only on their own aspect.
+///
+/// Before these existed, `FoldInfo` equality included the hinge angle and one
+/// inherited widget carried the whole state, so a widget reading only `pose`
+/// rebuilt on every sensor sample: 240 hinge updates across 30 fold-aware
+/// widgets produced 7170 builds.
+void _aspectTests() {
+  group('aspect-scoped access', () {
+    testWidgets('a pose-only widget ignores hinge-angle changes',
+        (tester) async {
+      final platform = FakeBifoldPlatform(initial: FoldInfoFakes.closed);
+      BifoldPlatform.instance = platform;
+      addTearDown(platform.dispose);
+
+      var poseBuilds = 0;
+      var angleBuilds = 0;
+      var wholeBuilds = 0;
+
+      await tester.pumpWidget(
+        BifoldScope(
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Column(
+              children: <Widget>[
+                Builder(builder: (context) {
+                  poseBuilds++;
+                  return Text(Bifold.poseOf(context).name);
+                }),
+                Builder(builder: (context) {
+                  angleBuilds++;
+                  return Text('${Bifold.hingeAngleOf(context)}');
+                }),
+                Builder(builder: (context) {
+                  wholeBuilds++;
+                  return Text(Bifold.of(context).pose.name);
+                }),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final poseBefore = poseBuilds;
+      final angleBefore = angleBuilds;
+      final wholeBefore = wholeBuilds;
+
+      // Sweep the angle without changing the pose, as a real hinge does.
+      for (var i = 0; i < 40; i++) {
+        platform.emit(
+          FoldInfoFakes.partiallyOpen(
+            viewSize: const Size(800, 1000),
+            hingeAngle: 1.0 + i * 0.01,
+          ),
+        );
+        await tester.pump();
+      }
+
+      // The pose changed exactly once, on the first emission, and then held
+      // across all 40 angle changes. That is the whole point of the aspect.
+      expect(poseBuilds - poseBefore, 1,
+          reason: 'pose moved closed -> partiallyOpen once, then held');
+
+      // The angle reader tracked the sweep. The exact count depends on how
+      // many emissions a frame coalesces, which is a scheduling detail, so
+      // this asserts that it followed rather than pinning a number.
+      final angleRebuilds = angleBuilds - angleBefore;
+      expect(angleRebuilds, greaterThan(10),
+          reason: 'the angle reader must follow the sweep');
+
+      // And a whole-state reader still sees every one of them, which is the
+      // documented cost of Bifold.of over an aspect accessor.
+      expect(wholeBuilds - wholeBefore, angleRebuilds);
+    });
+
+    testWidgets('an aspect accessor needs a scope, like Bifold.of',
+        (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Builder(
+            builder: (context) => Text(Bifold.poseOf(context).name),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isA<FlutterError>());
+    });
+  });
+
+  group('Bifold.listenable', () {
+    testWidgets('tracks the platform and needs no scope', (tester) async {
+      final platform = FakeBifoldPlatform(initial: FoldInfoFakes.closed);
+      BifoldPlatform.instance = platform;
+      addTearDown(platform.dispose);
+
+      Bifold.debugReset();
+      addTearDown(Bifold.debugReset);
+
+      final listenable = Bifold.listenable;
+      final seen = <FoldPose>[];
+      void record() => seen.add(listenable.value.pose);
+      listenable.addListener(record);
+      addTearDown(() => listenable.removeListener(record));
+      await tester.pump();
+
+      platform
+          .emit(FoldInfoFakes.partiallyOpen(viewSize: const Size(800, 1000)));
+      await tester.pump();
+      platform.emit(FoldInfoFakes.fullyOpen(viewSize: const Size(800, 1000)));
+      await tester.pump();
+
+      expect(seen, <FoldPose>[FoldPose.partiallyOpen, FoldPose.fullyOpen]);
+    });
+
+    testWidgets('equal consecutive states do not notify', (tester) async {
+      final platform = FakeBifoldPlatform();
+      BifoldPlatform.instance = platform;
+      addTearDown(platform.dispose);
+      // One object serves the whole process, so its value outlives a test.
+      Bifold.debugReset();
+      addTearDown(Bifold.debugReset);
+
+      final listenable = Bifold.listenable;
+      var notifications = 0;
+      void count() => notifications++;
+      listenable.addListener(count);
+      addTearDown(() => listenable.removeListener(count));
+      await tester.pump();
+
+      final state = FoldInfoFakes.fullyOpen(viewSize: const Size(800, 1000));
+      for (var i = 0; i < 5; i++) {
+        platform.emit(state);
+        await tester.pump();
+      }
+      expect(notifications, 1);
+    });
+  });
 }

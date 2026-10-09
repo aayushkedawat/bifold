@@ -113,6 +113,119 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  group('before the platform has answered', () {
+    testWidgets('no navigation is shown rather than the wrong one',
+        (tester) async {
+      // FoldInfo.unsupported means "nothing has reported". Guessing produced a
+      // visible flash on an open foldable: a bottom bar for one frame, then a
+      // rail.
+      await pump(tester, info: FoldInfo.unsupported);
+      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(find.byKey(const ValueKey<String>('body')), findsOneWidget);
+    });
+
+    testWidgets('an app can opt into guessing', (tester) async {
+      tester.view
+        ..physicalSize = kViewSize
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        BifoldScope.fake(
+          info: FoldInfo.unsupported,
+          child: MaterialApp(
+            home: BifoldScaffold(
+              destinations: kDestinations,
+              onDestinationSelected: (_) {},
+              showNavigationBeforeResolved: true,
+              body: const SizedBox.expand(key: ValueKey<String>('body')),
+            ),
+          ),
+        ),
+      );
+      // Which kind it guesses follows the width fallback -- the point is that
+      // navigation appears at all rather than waiting.
+      expect(
+        find.byType(NavigationRail).evaluate().length +
+            find.byType(NavigationBar).evaluate().length,
+        1,
+      );
+    });
+
+    testWidgets('a resolved no-fold phone still gets its bottom bar',
+        (tester) async {
+      await pump(tester, info: FoldInfoFakes.flat);
+      expect(find.byType(NavigationBar), findsOneWidget);
+    });
+  });
+
+  group('width fallback where no size class is reported', () {
+    Future<void> pumpAt(WidgetTester tester, Size size) async {
+      tester.view
+        ..physicalSize = size
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        BifoldScope.fake(
+          // Resolved, but with no size classes -- which is every platform
+          // with no native fold support: desktop, web, an unregistered plugin.
+          info: FoldInfo.none,
+          child: MaterialApp(
+            home: BifoldScaffold(
+              destinations: kDestinations,
+              onDestinationSelected: (_) {},
+              body: const SizedBox.expand(key: ValueKey<String>('body')),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('a desktop-sized window gets a rail, not phone chrome',
+        (tester) async {
+      // Regression: this rendered a NavigationBar at 1600x1000, because
+      // isRegular was false for want of a size class rather than for want of
+      // room.
+      await pumpAt(tester, const Size(1600, 1000));
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+    });
+
+    testWidgets('a phone-sized window still gets a bottom bar', (tester) async {
+      await pumpAt(tester, const Size(400, 800));
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(NavigationRail), findsNothing);
+    });
+
+    testWidgets('a reported size class still wins over the width',
+        (tester) async {
+      // The platform knows about the whole window; the widget may hold a
+      // fraction of it. A compact device stays compact in a wide view.
+      tester.view
+        ..physicalSize = const Size(1600, 1000)
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        BifoldScope.fake(
+          info: FoldInfoFakes.closed,
+          child: MaterialApp(
+            home: BifoldScaffold(
+              destinations: kDestinations,
+              onDestinationSelected: (_) {},
+              body: const SizedBox.expand(key: ValueKey<String>('body')),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(NavigationBar), findsOneWidget);
+    });
+  });
+
   testWidgets('the body survives every pose', (tester) async {
     for (final entry in FoldInfoFakes.poseMatrix(kViewSize).entries) {
       await pump(tester, info: entry.value);

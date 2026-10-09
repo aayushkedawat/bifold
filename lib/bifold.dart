@@ -65,7 +65,11 @@ export 'src/rear_display.dart'
     show BifoldRearDisplay, RearDisplayAvailability, RearDisplayStatus;
 export 'src/anchoring.dart' show bifoldAnchorPoint;
 export 'src/fakes.dart'
-    show BifoldCapabilityFakes, FakeBifoldPlatform, FoldInfoFakes;
+    show
+        BifoldCapabilityFakes,
+        FakeBifoldPlatform,
+        FoldInfoFakes,
+        RearDisplayFakes;
 export 'src/models.dart'
     show
         FoldDisplay,
@@ -82,4 +86,5 @@ export 'src/widgets/bifold_grid.dart' show BifoldGrid;
 export 'src/widgets/bifold_scaffold.dart'
     show BifoldDestination, BifoldScaffold;
 export 'src/widgets/bifold_scope.dart' show Bifold, BifoldScope;
-export 'src/widgets/bifold_split.dart' show BifoldSplit, BifoldSplitFallback;
+export 'src/widgets/bifold_split.dart'
+    show BifoldSplit, BifoldSplitFallback, kBifoldRegularWidthBreakpoint;

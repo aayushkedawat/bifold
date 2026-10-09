@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
+import 'bifold_platform_interface.dart';
 import 'capabilities.dart';
 
 /// Whether a rear-display mode can be used, and whether it is running.
@@ -42,12 +42,28 @@ class RearDisplayAvailability {
   const RearDisplayAvailability({
     required this.presentation,
     required this.transfer,
+    this.isResolved = false,
   });
 
-  /// Nothing is possible. What every platform without support reports.
+  /// Nothing has reported yet.
+  ///
+  /// Both modes read [RearDisplayStatus.unsupported] because nothing better
+  /// is known, and [isResolved] is false to say so. Hiding a control on this
+  /// is premature; it is the state to show a placeholder for, or to wait on.
+  static const RearDisplayAvailability unresolved = RearDisplayAvailability(
+    presentation: RearDisplayStatus.unsupported,
+    transfer: RearDisplayStatus.unsupported,
+  );
+
+  /// Nothing is possible, and that is settled.
+  ///
+  /// What every platform without support reports. Identical to [unresolved]
+  /// except that [isResolved] is true, which is the difference between "this
+  /// device cannot" and "nobody has said".
   static const RearDisplayAvailability none = RearDisplayAvailability(
     presentation: RearDisplayStatus.unsupported,
     transfer: RearDisplayStatus.unsupported,
+    isResolved: true,
   );
 
   /// Decodes availability from a platform channel map.
@@ -57,6 +73,10 @@ class RearDisplayAvailability {
           map['presentation'] as String?,
         ),
         transfer: RearDisplayStatus.fromName(map['transfer'] as String?),
+        // Read strictly, like FoldInfo.isResolved: the platform states
+        // whether it has established anything, because it is the only side
+        // that knows.
+        isResolved: map['isResolved'] == true,
       );
 
   /// Content on the second display while the app stays on the first.
@@ -64,6 +84,12 @@ class RearDisplayAvailability {
 
   /// The whole app moving to the second display. Android only.
   final RearDisplayStatus transfer;
+
+  /// Whether the platform has actually answered.
+  ///
+  /// False only on [unresolved]. While false, both statuses reading
+  /// `unsupported` means "not known", not "no".
+  final bool isResolved;
 
   /// The status of one [mode].
   RearDisplayStatus statusOf(RearDisplayMode mode) => switch (mode) {
@@ -81,15 +107,17 @@ class RearDisplayAvailability {
       identical(this, other) ||
       other is RearDisplayAvailability &&
           other.presentation == presentation &&
-          other.transfer == transfer;
+          other.transfer == transfer &&
+          other.isResolved == isResolved;
 
   @override
-  int get hashCode => Object.hash(presentation, transfer);
+  int get hashCode => Object.hash(presentation, transfer, isResolved);
 
   @override
-  String toString() =>
-      'RearDisplayAvailability(presentation: ${presentation.name}, '
-      'transfer: ${transfer.name})';
+  String toString() => isResolved
+      ? 'RearDisplayAvailability(presentation: ${presentation.name}, '
+          'transfer: ${transfer.name})'
+      : 'RearDisplayAvailability(unresolved)';
 }
 
 /// Shows app content on the display facing the rear camera.
@@ -120,40 +148,39 @@ class RearDisplayAvailability {
 ///
 /// Every method here resolves to a no-op or `false` on unsupported platforms
 /// rather than throwing.
+///
+/// ## Testing an app that uses this
+///
+/// Everything here goes through [BifoldPlatform], so `FakeBifoldPlatform`
+/// drives all of it with no channel mocking:
+///
+/// ```dart
+/// final platform = FakeBifoldPlatform(rearDisplay: RearDisplayFakes.available);
+/// BifoldPlatform.instance = platform;
+/// addTearDown(BifoldPlatform.debugResetInstance);
+///
+/// // ...then, to model the system starting and ending a session:
+/// platform.emitRearDisplay(RearDisplayFakes.presenting);
+/// ```
 abstract final class BifoldRearDisplay {
-  static const MethodChannel _methods = MethodChannel('dev.bifold/methods');
-  static const EventChannel _events = EventChannel('dev.bifold/rear_display');
-
-  static Stream<RearDisplayAvailability>? _availability;
-
   /// The status of both modes, updating as the system changes its mind.
   ///
   /// Emits on listen. On platforms with no support it emits
   /// [RearDisplayAvailability.none] and stays open, so a UI can bind to it
   /// unconditionally.
   static Stream<RearDisplayAvailability> get availability {
-    return _availability ??= _events
-        .receiveBroadcastStream()
-        .map(
-          (Object? event) => event is Map<Object?, Object?>
-              ? RearDisplayAvailability.fromMap(event)
-              : RearDisplayAvailability.none,
-        )
-        .handleError((Object _) {})
-        .asBroadcastStream();
+    try {
+      return BifoldPlatform.instance.rearDisplayAvailabilityStream();
+    } on UnimplementedError {
+      return _absent;
+    }
   }
 
   /// Reads the status of both modes once.
   static Future<RearDisplayAvailability> get current async {
     try {
-      final Map<Object?, Object?>? payload =
-          await _methods.invokeMapMethod<Object?, Object?>('rearDisplayStatus');
-      return payload == null
-          ? RearDisplayAvailability.none
-          : RearDisplayAvailability.fromMap(payload);
-    } on MissingPluginException {
-      return RearDisplayAvailability.none;
-    } on PlatformException {
+      return await BifoldPlatform.instance.rearDisplayStatus();
+    } on UnimplementedError {
       return RearDisplayAvailability.none;
     }
   }
@@ -172,25 +199,11 @@ abstract final class BifoldRearDisplay {
     String? libraryUri,
   }) async {
     try {
-      return await _methods.invokeMethod<bool>(
-            'presentOnRearDisplay',
-            <String, Object?>{
-              'entrypoint': entrypoint,
-              'libraryUri': libraryUri,
-            },
-          ) ??
-          false;
-    } on MissingPluginException {
-      return false;
-    } on PlatformException catch (error, stack) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stack,
-          library: 'bifold',
-          context: ErrorDescription('presenting on the rear display'),
-        ),
+      return await BifoldPlatform.instance.presentOnRearDisplay(
+        entrypoint: entrypoint,
+        libraryUri: libraryUri,
       );
+    } on UnimplementedError {
       return false;
     }
   }
@@ -201,11 +214,8 @@ abstract final class BifoldRearDisplay {
   /// system is unwilling.
   static Future<bool> transferActivity() async {
     try {
-      return await _methods.invokeMethod<bool>('transferToRearDisplay') ??
-          false;
-    } on MissingPluginException {
-      return false;
-    } on PlatformException {
+      return await BifoldPlatform.instance.transferToRearDisplay();
+    } on UnimplementedError {
       return false;
     }
   }
@@ -213,11 +223,26 @@ abstract final class BifoldRearDisplay {
   /// Ends whichever session is running. Safe to call when none is.
   static Future<void> end() async {
     try {
-      await _methods.invokeMethod<void>('endRearDisplay');
-    } on MissingPluginException {
+      await BifoldPlatform.instance.endRearDisplay();
+    } on UnimplementedError {
       // Nothing to end where nothing can start.
-    } on PlatformException {
-      // Tearing down is best-effort.
     }
   }
+
+  /// What [availability] reports when the platform implementation predates
+  /// rear display.
+  ///
+  /// A [BifoldPlatform] written before these methods existed throws
+  /// [UnimplementedError] from its inherited bodies, and an app must not see
+  /// that: a platform that cannot answer is, for the app's purposes, a
+  /// platform with no second display. Open rather than closed, and built once
+  /// per process rather than per call, because the documented contract is a
+  /// stream a `StreamBuilder` can hold on to.
+  static final Stream<RearDisplayAvailability> _absent = () {
+    late final StreamController<RearDisplayAvailability> controller;
+    controller = StreamController<RearDisplayAvailability>.broadcast(
+      onListen: () => controller.add(RearDisplayAvailability.none),
+    );
+    return controller.stream;
+  }();
 }

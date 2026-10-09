@@ -33,6 +33,9 @@ enum NativeApiProbe {
       "",
     ]
 
+    out.append(resolutionVerdict())
+    out.append("")
+
     out.append("== UIView methods matching 'reserved' ==")
     out.append(render(methods(of: UIView.self, matching: "reserved")))
     out.append("")
@@ -62,7 +65,13 @@ enum NativeApiProbe {
     out.append(describeLiveRegions(view: view))
     out.append(describeVerticalBar(view: view))
     out.append(describeKindType())
-    out.append(describeConstants())
+    // describeConstants() used to go here. It used dlsym to look for globals
+    // named UIViewReservedRegionKindDivision and friends, which API_NOTES
+    // records as not existing -- the kinds come from the +divisionRegionKind
+    // and +occlusionRegionKind class methods instead. So it answered a settled
+    // question, shipped in release builds, and put UIKit-prefixed symbol
+    // strings in the binary for an App Store scanner to flag. Removed rather
+    // than guarded: there was nothing left for it to tell anyone.
     out.append(describeHinge())
     return out.joined(separator: "\n")
   }
@@ -72,6 +81,68 @@ enum NativeApiProbe {
   /// The property encoding is `T@"UIViewReservedRegionKind"`, which is either
   /// a real class or an NS_TYPED_ENUM typedef of NSString. The two need very
   /// different calling code, so this settles which.
+  /// Says plainly whether the fold APIs were found where they were expected.
+  ///
+  /// This package resolves Apple's fold symbols through the Objective-C
+  /// runtime rather than linking them, so that one binary builds on an older
+  /// Xcode and still runs the fold path on a new OS. The cost of that choice
+  /// is that a renamed or withdrawn symbol fails *silently*: the package
+  /// simply reports no fold, forever, with nothing to distinguish it from an
+  /// ordinary phone. The Flutter engine's own iPhone Duo work chose
+  /// compile-time guards over runtime lookup in public for exactly this
+  /// reason.
+  ///
+  /// It cannot be made to fail loudly at build time without giving up the
+  /// older-Xcode support, so it is made to fail loudly *here* instead: on an
+  /// OS new enough to have the symbols, a failure to find them is called out
+  /// as a bug in this package rather than left looking like a device without a
+  /// hinge. `UIHingeInteraction` and `UIHinge` were still flagged beta on iOS
+  /// when this shipped, which is precisely when a rename is most likely.
+  private static func resolutionVerdict() -> String {
+    let version = UIDevice.current.systemVersion
+    let expectsFoldApi: Bool
+    if #available(iOS 27.1, *) {
+      expectsFoldApi = true
+    } else {
+      expectsFoldApi = false
+    }
+
+    let found = [
+      ("UIViewReservedRegion", NSClassFromString("UIViewReservedRegion") != nil),
+      ("UIHingeInteraction", NSClassFromString("UIHingeInteraction") != nil),
+      ("reservedRegionsOfKind:", UIView.instancesRespond(
+        to: NSSelectorFromString("reservedRegionsOfKind:")
+      )),
+    ]
+    let missing = found.filter { !$0.1 }.map { $0.0 }
+
+    if !expectsFoldApi {
+      return """
+        == symbol resolution ==
+          iOS \(version) predates the fold APIs. Reporting no fold is correct \
+        here.
+        """
+    }
+    if missing.isEmpty {
+      return """
+        == symbol resolution ==
+          OK -- every expected fold symbol resolved on iOS \(version).
+        """
+    }
+    return """
+      == symbol resolution ==
+        *** PROBLEM: iOS \(version) should expose the fold APIs, but these did \
+      not resolve:
+          \(missing.joined(separator: ", "))
+        This is a bug in the bifold package, NOT a device without a fold. The \
+      symbols are
+        resolved by name at runtime, so a rename in a newer SDK makes them \
+      vanish quietly.
+        Please report this output at \
+      https://github.com/aayushkedawat/bifold/issues
+      """
+  }
+
   private static func describeKindType() -> String {
     var out: [String] = ["== UIViewReservedRegionKind / Identifier =="]
 
@@ -134,15 +205,20 @@ enum NativeApiProbe {
       // And the options variant, with IncludeInactive.
       typealias Call = @convention(c) (AnyObject, Selector, AnyObject, UInt)
         -> AnyObject?
-      if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend") {
+      // Guarded, unlike before. An OS that has the region kinds but not the
+      // options overload would raise doesNotRecognizeSelector and take the
+      // process down -- from a diagnostic, which this class documents as
+      // impossible. FoldReader.rawRegions has always guarded this call; this
+      // one did not.
+      let optionsSelector = NSSelectorFromString("reservedRegionsOfKind:options:")
+      if view.responds(to: optionsSelector),
+        let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend")
+      {
         let call = unsafeBitCast(symbol, to: Call.self)
-        let withOptions = call(
-          view,
-          NSSelectorFromString("reservedRegionsOfKind:options:"),
-          kind,
-          1
-        ) as? [Any]
+        let withOptions = call(view, optionsSelector, kind, 1) as? [Any]
         out.append("  \(name) includeInactive -> \(withOptions?.count ?? -1) \(withOptions.map { String(describing: $0) } ?? "nil")")
+      } else {
+        out.append("  \(name) includeInactive -> selector absent")
       }
     }
 
@@ -225,53 +301,6 @@ enum NativeApiProbe {
   }
 
   // MARK: - Constants
-
-  /// Resolves the exported constants the reserved-region selector needs.
-  ///
-  /// `-reservedRegionsOfKind:options:` takes its kind as an *object*, and
-  /// `UIViewReservedRegion.kind` is typed `UIViewReservedRegionKind` — the
-  /// NS_TYPED_ENUM pattern, whose values are exported string constants.
-  /// Without their real names the selector cannot be called at all, so they
-  /// are looked up by symbol.
-  private static func describeConstants() -> String {
-    var out: [String] = ["== exported constants (dlsym) =="]
-
-    let candidates = [
-      "UIViewReservedRegionKindDivision",
-      "UIViewReservedRegionKindOcclusion",
-      "UIViewReservedRegionKindFold",
-      "UIViewReservedRegionKindCamera",
-      "UIViewReservedRegionIdentifierFold",
-      "UIViewReservedRegionIdentifierCamera",
-      "UIViewReservedRegionIdentifierVerticalBar",
-    ]
-
-    for name in candidates {
-      if let value = constant(named: name) {
-        out.append("  \(name) = \(value)")
-      } else {
-        out.append("  \(name): (not exported)")
-      }
-    }
-
-    out.append("")
-    out.append("== live call: -reservedRegionsOfKind: ==")
-    let selector = NSSelectorFromString("reservedRegionsOfKind:")
-    let probeView = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
-    guard probeView.responds(to: selector) else {
-      out.append("  UIView does not respond to -reservedRegionsOfKind:")
-      return out.joined(separator: "\n")
-    }
-    for name in [
-      "UIViewReservedRegionKindDivision", "UIViewReservedRegionKindOcclusion",
-    ] {
-      guard let kind = constant(named: name) else { continue }
-      let returned = probeView.perform(selector, with: kind)?
-        .takeUnretainedValue()
-      out.append("  \(name) -> \(String(describing: returned))")
-    }
-    return out.joined(separator: "\n")
-  }
 
   /// Reads an exported Objective-C object constant by symbol name.
   ///

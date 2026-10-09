@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import 'bifold_scope.dart';
+import 'bifold_split.dart' show kBifoldRegularWidthBreakpoint;
 
 /// One navigation target in a [BifoldScaffold].
 @immutable
@@ -63,6 +64,7 @@ class BifoldScaffold extends StatelessWidget {
     this.floatingActionButton,
     this.backgroundColor,
     this.railLeading,
+    this.showNavigationBeforeResolved = false,
     super.key,
   });
 
@@ -92,12 +94,39 @@ class BifoldScaffold extends StatelessWidget {
   /// Ignored in the compact layout, where there is no rail.
   final Widget? railLeading;
 
+  /// Whether to show navigation before the platform has reported.
+  ///
+  /// Defaults to false. Until [FoldInfo.isResolved] is true nothing is known
+  /// about the device, and guessing means a visible flash: an app launching on
+  /// an open foldable showed a bottom bar for a frame and then swapped it for
+  /// a rail. Rendering [body] alone for that frame costs nothing, because the
+  /// platform answers within the first frames.
+  ///
+  /// Set it true where a guess is better than briefly having no navigation —
+  /// an app that ships only to phones, for instance.
+  final bool showNavigationBeforeResolved;
+
+  /// Whether this layout has room for a rail rather than a bottom bar.
+  ///
+  /// Prefers the platform's own size classes. Falls back to the window width
+  /// against [kBifoldRegularWidthBreakpoint] when none were reported, which is
+  /// every platform with no native fold support — so a desktop window gets a
+  /// rail instead of the phone chrome it used to get, because `isRegular` was
+  /// false there for want of a size class rather than for want of room.
+  bool _isRegular(BuildContext context, FoldInfo info) {
+    if (info.horizontalSizeClass != FoldSizeClass.unspecified) {
+      return info.isRegular;
+    }
+    return MediaQuery.sizeOf(context).width >= kBifoldRegularWidthBreakpoint;
+  }
+
   @override
   Widget build(BuildContext context) {
     final FoldInfo info = Bifold.of(context);
-    final bool hasNavigation = destinations.length > 1;
+    final bool hasNavigation = destinations.length > 1 &&
+        (info.isResolved || showNavigationBeforeResolved);
 
-    if (!info.isRegular || !hasNavigation) {
+    if (!_isRegular(context, info) || !hasNavigation) {
       return Scaffold(
         appBar: appBar,
         backgroundColor: backgroundColor,

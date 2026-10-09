@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bifold/bifold.dart';
 import 'package:bifold/src/method_channel_bifold.dart';
 import 'package:flutter/foundation.dart';
@@ -50,19 +52,27 @@ void main() {
       expect(info.division?.frame.top, 490.0);
     });
 
-    test('reports unsupported when there is no native implementation',
+    test('reports a settled no-fold when there is no native implementation',
         () async {
-      // This is what every non-iOS platform does: the channel has no handler,
-      // so the call raises MissingPluginException.
-      expect(await platform.getFoldInfo(), FoldInfo.unsupported);
+      // This is what web, desktop and any unregistered plugin does: the
+      // channel has no handler, so the call raises MissingPluginException.
+      // That is an answer rather than silence -- having no implementation
+      // conclusively means no fold -- so it is FoldInfo.none, which resolves.
+      // While this returned FoldInfo.unsupported, FoldInfo.none was
+      // unreachable from the real platform path and a consumer gating its
+      // first layout on isResolved waited forever.
+      final info = await platform.getFoldInfo();
+      expect(info, FoldInfo.none);
+      expect(info.isResolved, isTrue);
     });
 
-    test('reports unsupported when the native side returns null', () async {
+    test('reports a settled no-fold when the native side returns null',
+        () async {
       messenger.setMockMethodCallHandler(
         platform.methodChannel,
         (call) async => null,
       );
-      expect(await platform.getFoldInfo(), FoldInfo.unsupported);
+      expect(await platform.getFoldInfo(), FoldInfo.none);
     });
 
     test('reports unsupported when the native side raises', () async {
@@ -165,7 +175,9 @@ void main() {
       await pumpEventQueue();
 
       expect(errors, isEmpty, reason: 'no plugin is a state, not a failure');
-      expect(emitted.single, FoldInfo.unsupported);
+      // Settled, not silent: there is no native side, so there is no fold.
+      expect(emitted.single, FoldInfo.none);
+      expect(emitted.single.isResolved, isTrue);
     });
 
     test('subscribes when the native side answers with a failure', () async {
@@ -240,13 +252,190 @@ void main() {
   });
 
   group('channel names', () {
-    test('match the names the native plugin registers', () {
-      // Changing either of these without changing BifoldPlugin.swift silently
-      // breaks the plugin at runtime, where no test would catch it.
-      expect(kBifoldMethodChannelName, 'dev.bifold/methods');
-      expect(kBifoldEventChannelName, 'dev.bifold/fold_info');
+    test('are the names this class actually uses', () {
       expect(platform.methodChannel.name, kBifoldMethodChannelName);
       expect(platform.eventChannel.name, kBifoldEventChannelName);
+    });
+
+    test('appear verbatim in both native implementations', () {
+      // The previous version of this test asserted that each constant equalled
+      // its own literal, which no change could ever break -- while its comment
+      // claimed to guard against a native rename. Channel names and method
+      // names are string literals duplicated across Dart, Swift and Kotlin
+      // with no shared schema, so the only test that can catch a rename is one
+      // that reads the other two languages.
+      final swift = File('ios/bifold/Sources/bifold/BifoldPlugin.swift')
+          .readAsStringSync();
+      final kotlin =
+          File('android/src/main/kotlin/dev/bifold/bifold/BifoldPlugin.kt')
+              .readAsStringSync();
+
+      for (final name in <String>[
+        kBifoldMethodChannelName,
+        kBifoldEventChannelName,
+      ]) {
+        expect(swift, contains(name), reason: '$name is missing from iOS');
+        expect(kotlin, contains(name), reason: '$name is missing from Android');
+      }
+    });
+
+    test('every method Dart invokes is handled by both platforms', () {
+      final swift = File('ios/bifold/Sources/bifold/BifoldPlugin.swift')
+          .readAsStringSync();
+      final kotlin =
+          File('android/src/main/kotlin/dev/bifold/bifold/BifoldPlugin.kt')
+              .readAsStringSync();
+
+      // Dart calls these on every platform, so both sides must answer them --
+      // Android answers the iOS-only ones with a refusal rather than letting
+      // them fall through to notImplemented.
+      for (final method in <String>[
+        'getFoldInfo',
+        'getCapabilities',
+        'debugDescribeNativeApi',
+      ]) {
+        expect(swift, contains('"$method"'),
+            reason: '$method is not handled on iOS');
+        expect(kotlin, contains('"$method"'),
+            reason: '$method is not handled on Android');
+      }
+    });
+
+    test('both platforms stamp the keys Dart reads strictly', () {
+      // isResolved is read with `== true`, so a platform that omits it
+      // reports "nothing established" forever. capabilityRevision gates the
+      // capability re-query. Neither failure is visible in Dart alone.
+      final iosFold =
+          File('ios/bifold/Sources/bifold/FoldReader.swift').readAsStringSync();
+      final androidFold =
+          File('android/src/main/kotlin/dev/bifold/bifold/FoldReader.kt')
+              .readAsStringSync();
+
+      for (final key in <String>['isResolved', 'capabilityRevision']) {
+        expect(iosFold, contains('"$key"'),
+            reason: 'the iOS fold payload omits $key');
+        expect(androidFold, contains('"$key"'),
+            reason: 'the Android fold payload omits $key');
+      }
+    });
+  });
+
+  group('getCapabilities', () {
+    test('a null payload settles as no fold support', () async {
+      messenger.setMockMethodCallHandler(
+          platform.methodChannel, (_) async => null);
+      final caps = await platform.getCapabilities();
+      expect(caps.isResolved, isTrue);
+      expect(caps.hasFold, isFalse);
+      expect(caps.statusOf(FoldFeature.fold), CapabilityStatus.unsupported);
+    });
+
+    test('a missing plugin settles as no fold support', () async {
+      messenger.setMockMethodCallHandler(platform.methodChannel, (call) async {
+        throw MissingPluginException('no implementation for ${call.method}');
+      });
+      final caps = await platform.getCapabilities();
+      expect(caps, BifoldCapabilities.none);
+    });
+
+    test('a decoded payload is absorbed, and stickiness applies', () async {
+      messenger.setMockMethodCallHandler(platform.methodChannel, (_) async {
+        return <Object?, Object?>{
+          'isResolved': true,
+          'platform': 'android',
+          'formFactor': 'book',
+          'rearDisplayModes': <Object?>['presentation'],
+          'features': <Object?, Object?>{
+            'fold': <Object?, Object?>{
+              'status': 'supported',
+              'source': 'android.feature.hinge_angle',
+            },
+          },
+        };
+      });
+      final first = await platform.getCapabilities();
+      expect(first.hasFold, isTrue);
+      expect(first.formFactor, FoldFormFactor.book);
+      expect(first.sourceOf(FoldFeature.fold), 'android.feature.hinge_angle');
+      // Brief decision 4: platform is readable through raw, never typed.
+      expect(first.raw['platform'], 'android');
+
+      // A later report that has forgotten the fold -- which is what a closed
+      // foldable produces -- must not take the capability away.
+      messenger.setMockMethodCallHandler(platform.methodChannel, (_) async {
+        return <Object?, Object?>{
+          'isResolved': true,
+          'formFactor': 'unknown',
+          'features': <Object?, Object?>{},
+        };
+      });
+      final second = await platform.getCapabilities();
+      expect(second.hasFold, isTrue, reason: 'supported is sticky');
+      expect(second.formFactor, FoldFormFactor.book);
+    });
+
+    test('a platform exception claims nothing new', () async {
+      messenger.setMockMethodCallHandler(platform.methodChannel, (_) async {
+        throw PlatformException(code: 'boom');
+      });
+      final reported = <Object>[];
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) => reported.add(details.exception);
+      addTearDown(() => FlutterError.onError = previous);
+
+      final caps = await platform.getCapabilities();
+      // Claiming "no fold support" would be stronger than the evidence: the
+      // plugin is there and unhappy, which is not an answer about the device.
+      expect(caps, BifoldCapabilities.unresolved);
+      expect(reported, hasLength(1));
+    });
+  });
+
+  group('capabilitiesStream', () {
+    test('queries once per capability revision, not once per event', () async {
+      var queries = 0;
+      messenger.setMockMethodCallHandler(platform.methodChannel, (call) async {
+        if (call.method == 'getCapabilities') {
+          queries++;
+          return <Object?, Object?>{
+            'isResolved': true,
+            'formFactor': 'book',
+            'features': <Object?, Object?>{
+              'fold': <Object?, Object?>{'status': 'supported'},
+            },
+          };
+        }
+        return <Object?, Object?>{'isFoldable': true, 'isResolved': true};
+      });
+
+      final seen = <BifoldCapabilities>[];
+      final sub = platform.capabilitiesStream().listen(seen.add);
+      addTearDown(sub.cancel);
+      await pumpEventQueue();
+
+      // A fold in progress: the hinge angle moves, the capabilities do not,
+      // so the native side leaves the revision alone.
+      for (var i = 0; i < 60; i++) {
+        await _emit(messenger, <Object?, Object?>{
+          'isFoldable': true,
+          'isResolved': true,
+          'pose': 'partiallyOpen',
+          'hingeAngle': 0.5 + i * 0.01,
+          'capabilityRevision': 0,
+        });
+      }
+      await pumpEventQueue();
+      expect(queries, 1,
+          reason: '60 hinge samples used to cost 60 platform round trips');
+
+      // A real capability change bumps the revision, and must get through.
+      await _emit(messenger, <Object?, Object?>{
+        'isFoldable': true,
+        'isResolved': true,
+        'capabilityRevision': 1,
+      });
+      await pumpEventQueue();
+      expect(queries, 2);
     });
   });
 }

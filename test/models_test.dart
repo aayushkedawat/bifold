@@ -215,16 +215,61 @@ void main() {
       expect(info.division, isNotNull);
     });
 
-    test('decodes an empty payload to a resolved no-fold state', () {
-      // An empty payload still means the platform answered, so this is
-      // FoldInfo.none rather than FoldInfo.unsupported. The two carry the same
-      // fields and differ only in isResolved, which is the whole point: one
-      // says "no fold", the other says "nothing has told me yet".
+    test('a payload that omits isResolved has established nothing', () {
+      // isResolved is read strictly. The platform now states whether it has
+      // established anything, because it is the only side that knows: iOS
+      // emits a payload before its view has loaded, and Android before the
+      // first window-layout callback. Inferring "resolved" from the mere
+      // arrival of a payload turned those into a confident "there is no
+      // fold", which is the conflation FoldInfo.none exists to prevent.
       final info = FoldInfo.fromMap(const <Object?, Object?>{});
+      expect(info, FoldInfo.unsupported);
+      expect(info.isResolved, isFalse);
+      expect(info, isNot(FoldInfo.none));
+      expect(info.isFoldable, isFalse);
+    });
+
+    test('a payload saying so decodes as resolved', () {
+      final info = FoldInfo.fromMap(const <Object?, Object?>{
+        'version': 1,
+        'isFoldable': false,
+        'isResolved': true,
+      });
       expect(info, FoldInfo.none);
       expect(info.isResolved, isTrue);
-      expect(info, isNot(FoldInfo.unsupported));
-      expect(info.isFoldable, isFalse);
+    });
+
+    test('capabilityRevision decodes, and defaults to zero', () {
+      expect(
+        FoldInfo.fromMap(const <Object?, Object?>{'capabilityRevision': 7})
+            .capabilityRevision,
+        7,
+      );
+      // A native build predating the key: zero makes the capability stream
+      // query once rather than never.
+      expect(
+        FoldInfo.fromMap(const <Object?, Object?>{}).capabilityRevision,
+        0,
+      );
+      expect(
+        FoldInfo.fromMap(const <Object?, Object?>{'capabilityRevision': 'no'})
+            .capabilityRevision,
+        0,
+      );
+    });
+
+    test('capabilityRevision is not observable state', () {
+      // It is plumbing for the capability stream. If it took part in equality
+      // every fold-aware widget would rebuild when a capability settled,
+      // which is exactly what the separate capability model avoids.
+      const a = FoldInfo(
+        isFoldable: true,
+        display: FoldDisplay.inner,
+        pose: FoldPose.fullyOpen,
+        regions: <FoldRegion>[],
+        isResolved: true,
+      );
+      expect(a.copyWith(capabilityRevision: 9), a);
     });
 
     test('survives a payload from a newer native build', () {

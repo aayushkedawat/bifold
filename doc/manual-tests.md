@@ -230,17 +230,21 @@ adb -s emulator-5556 exec-out screencap -d <display-id> -p > shot.png
 
 ## Checks
 
-| # | Step | Expected |
-|---|---|---|
-| A1 | Open (state 2), angle 180 | `foldable`, `display: inner`, `pose: fullyOpen`, 1 region **inactive**, `regular/regular` |
-| A2 | Half-open (state 1), angle 45 | `pose: partiallyOpen`, division **active**, `BifoldSplit` puts the two reader pages side by side |
-| A3 | Closed (state 0), angle 0 | `foldable` **still true**, `pose: unknown`, `display: none`, 0 regions, `compact/regular` on the cover display |
-| A4 | A1 → A3 → A1 | `BifoldScaffold` swaps its NavigationRail for a bottom bar and back; no stale measurements from the previous display |
-| A5 | Sweep the angle (see below) | the hinge gauge tracks every value, not just the detents; the angle never sticks at a previous reading |
-| A6 | Rotate while half-open | the division follows the new orientation |
-| A7 | Multi-window / split screen | size classes follow the window, not the display |
-| A8 | Run on a non-foldable AVD | `not foldable`, no regions, **nothing logged to the console** |
-| A9 | Throughout | no exception of any kind in `flutter run` output |
+Record a result in the third column every time this list is walked. An empty
+cell means nobody has checked it on this build — the README's verification
+matrix is only allowed to tick what is filled in here.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| A1 | Open (state 2), angle 180 | `foldable`, `display: inner`, `pose: fullyOpen`, 1 region **inactive**, `regular/regular` | |
+| A2 | Half-open (state 1), angle 45 | `pose: partiallyOpen`, division **active**, `BifoldSplit` puts the two reader pages side by side | |
+| A3 | Closed (state 0), angle 0 | `foldable` **still true**, `pose: unknown`, `display: none`, 0 regions, `compact/regular` on the cover display | |
+| A4 | A1 → A3 → A1 | `BifoldScaffold` swaps its NavigationRail for a bottom bar and back; no stale measurements from the previous display | |
+| A5 | Sweep the angle (see below) | the hinge gauge tracks every value, not just the detents; the angle never sticks at a previous reading | |
+| A6 | Rotate while half-open | the division follows the new orientation | |
+| A7 | Multi-window / split screen | size classes follow the window, not the display | |
+| A8 | Run on a non-foldable AVD | `not foldable`, no regions, **nothing logged to the console** | |
+| A9 | Throughout | no exception of any kind in `flutter run` output | |
 
 A3 is the one worth repeating after any change to capability detection: it is
 the case observation cannot cover, and it passes only because `isFoldable`
@@ -252,6 +256,28 @@ comes from a static device feature.
 * `OcclusionType.FULL` — no emulator state has been found that produces it.
 * Activity recreation mid-fold on a device that actually recreates it; the
   emulator does not always.
-* Rear display. The AVD advertises `REAR_DISPLAY_MODE` and
-  `CONCURRENT_INNER_DEFAULT` device states, so this looks testable, but no
-  support exists yet.
+* Ending a rear-display session. Starting one is covered in the rear-display
+  checks below; `close()` produced no `onSessionEnded` callback on the
+  `android-37.2` emulator and the area kept reporting `active`, so the end of
+  a session has never been seen to work.
+
+## Rear display (Android)
+
+The book-style AVD advertises `REAR_DISPLAY_MODE` and
+`CONCURRENT_INNER_DEFAULT`, so both operations can be exercised on it. Walk
+this after any change to `RearDisplay.kt` or the window-area capability
+reader.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| R1 | Open the device, read `BifoldRearDisplay.current` | `presentation: available`, `transfer: available` | |
+| R2 | `present(entrypoint:)` with the device open | a second Flutter engine renders on the outer display; status goes `available` → `active` | |
+| R3 | **Fold the device while presenting** | the session survives: folding is a configuration change and must not end it | |
+| R4 | `end()` while presenting | status returns to `available` and the second engine is destroyed | |
+| R5 | `transferActivity()` | the whole app moves to the outer display and comes back on `end()` | |
+| R6 | Read fold state *inside* the presented entrypoint | the presented engine reports the real pose and hinge angle, not `unknown`/`null` | |
+| R7 | Run R1 on a non-foldable AVD | both modes `unsupported`, nothing logged to the console | |
+
+R3 and R6 are the two that regressed before 1.0.0: a configuration change used
+to tear the session down, and the presented engine used to have no view of the
+hinge at all. Repeat both after any change to the plugin's activity lifecycle.

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.os.Build
+import android.view.Surface
+import androidx.window.core.ExperimentalWindowApi
 import androidx.window.area.WindowAreaCapability
 import androidx.window.area.WindowAreaInfo
 import androidx.window.layout.FoldingFeature
@@ -20,6 +22,11 @@ import androidx.window.layout.FoldingFeature
  * * An observation may only ever move a capability up to `supported`.
  * * Anything else is `unknown`, which is a real answer and not a failure.
  */
+// Every androidx.window.area symbol is @ExperimentalWindowApi. The
+// annotation is only RequiresOptIn.Level.WARNING, so this compiled without
+// saying so anywhere -- which hid the fact that the whole rear-display
+// feature rests on an API that can change without a major version.
+@OptIn(ExperimentalWindowApi::class)
 internal class CapabilityReader(context: Context) {
 
   private val appContext = context.applicationContext
@@ -35,32 +42,39 @@ internal class CapabilityReader(context: Context) {
   private val declaresHinge: Boolean =
     appContext.packageManager.hasSystemFeature(PackageManager.FEATURE_SENSOR_HINGE_ANGLE)
 
-  private var sawFold = false
-  private var sawHalfOpened = false
-  private var sawSeparating = false
-  private var sawOcclusion = false
-  private var foldOrientation: FoldingFeature.Orientation? = null
+  /// The sticky observations and the revision rule, extracted so they can be
+  /// unit-tested on the JVM -- this class needs a Context and so cannot be.
+  private val observations = CapabilityObservations()
+
+  /// See [CapabilityObservations.revision].
+  val revision: Int get() = observations.revision
+
+  private val sawFold: Boolean get() = observations.sawFold
+  private val sawHalfOpened: Boolean get() = observations.sawHalfOpened
+  private val sawSeparating: Boolean get() = observations.sawSeparating
+  private val sawOcclusion: Boolean get() = observations.sawOcclusion
+  private val sawWindowAreaReport: Boolean get() = observations.sawWindowAreaReport
+
   private var windowAreas: List<WindowAreaInfo> = emptyList()
 
   /** Folds an observation in. Observations only ever add. */
-  fun observeFolds(folds: List<FoldingFeature>) {
-    if (folds.isEmpty()) return
-    sawFold = true
-    for (fold in folds) {
-      if (fold.state == FoldingFeature.State.HALF_OPENED) sawHalfOpened = true
-      if (fold.isSeparating) sawSeparating = true
-      if (fold.occlusionType == FoldingFeature.OcclusionType.FULL) sawOcclusion = true
-      foldOrientation = fold.orientation
-    }
-  }
+  fun observeFolds(folds: List<FoldingFeature>, rotation: Int) =
+    observations.observeFolds(folds, rotation)
 
   fun observeWindowAreas(areas: List<WindowAreaInfo>) {
     windowAreas = areas
+    // The modes are the capability-relevant projection of the report; the
+    // objects themselves are new on every emission.
+    observations.observeWindowAreas(rearDisplayModes())
   }
 
-  fun payload(hingeSensorPresent: Boolean, rotation: Int): Map<String, Any?> = mapOf(
+  fun payload(hingeSensorPresent: Boolean): Map<String, Any?> = mapOf(
+    "version" to BIFOLD_PAYLOAD_VERSION,
+    // Brief decision 4: platform belongs in `raw` and the diagnostic report,
+    // never as a typed getter on BifoldCapabilities.
+    "platform" to "android",
     "isResolved" to true,
-    "formFactor" to formFactor(rotation),
+    "formFactor" to formFactor(),
     "rearDisplayModes" to rearDisplayModes(),
     "features" to mapOf(
       "fold" to fold(),
@@ -107,7 +121,11 @@ internal class CapabilityReader(context: Context) {
 
   private fun rearDisplay(): Map<String, Any?> {
     if (windowAreas.isEmpty()) {
-      return evidence("unknown", "androidx.window.area.not_yet_reported")
+      return if (sawWindowAreaReport) {
+        evidence("unsupported", "androidx.window.area.no_window_areas")
+      } else {
+        evidence("unknown", "androidx.window.area.not_yet_reported")
+      }
     }
     val supported = windowAreas.any { info ->
       OPERATIONS.any { operation ->
@@ -154,6 +172,15 @@ internal class CapabilityReader(context: Context) {
    * something there", so it stays `unknown` and never claims support.
    */
   private fun coverDisplay(): Map<String, Any?> {
+    // Deliberately `unknown` either way, and the branch exists only to say
+    // *why* in the diagnostic report. Android has no query for "can an app
+    // run on the cover display while this device is shut": DisplayManager
+    // enumerates displays, but a second display may be an external monitor,
+    // a virtual display or a cast target, and whether the system will launch
+    // this app onto it is device policy rather than anything an app can ask.
+    // Reporting `supported` from a display count would be a guess, and
+    // `unsupported` would be a stronger claim than the evidence allows --
+    // so this stays the honest third answer.
     val displays = (appContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
       ?.displays?.size ?: 0
     return if (displays > 1) {
@@ -165,7 +192,11 @@ internal class CapabilityReader(context: Context) {
 
   private fun reservedRegions(): Map<String, Any?> = when {
     sawFold -> evidence("supported", "androidx.window.FoldingFeature.bounds")
-    declaresHinge -> evidence("unknown", "android.not_yet_observed")
+    // A declared hinge means a fold will be reported with bounds once the
+    // device is opened, so the distinction is worth keeping -- but only as a
+    // different source string, because neither case is established yet. The
+    // two branches used to be byte-identical, which read as unfinished.
+    declaresHinge -> evidence("unknown", "android.hinge_declared_fold_unobserved")
     else -> evidence("unknown", "android.not_yet_observed")
   }
 
@@ -179,8 +210,7 @@ internal class CapabilityReader(context: Context) {
     else -> evidence("unknown", "android.not_yet_observed")
   }
 
-  private fun formFactor(rotation: Int): String =
-    FormFactors.from(foldOrientation, rotation)
+  private fun formFactor(): String = observations.formFactor()
 
   private companion object {
     val PRESENT = WindowAreaCapability.Operation.OPERATION_PRESENT_ON_AREA

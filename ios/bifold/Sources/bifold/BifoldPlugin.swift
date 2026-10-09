@@ -6,6 +6,7 @@ private enum Channels {
   static let methods = "dev.bifold/methods"
   static let events = "dev.bifold/fold_info"
   static let accessoryEvents = "dev.bifold/capture_accessory"
+  static let rearDisplayEvents = "dev.bifold/rear_display"
 }
 
 /// Stable error codes surfaced to Dart as `FlutterError`.
@@ -47,6 +48,21 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   /// Sink for capture-accessory availability, when Dart is listening.
   private var accessorySink: FlutterEventSink?
 
+  /// Routes one availability change to every interested stream.
+  ///
+  /// `CaptureAccessory.onAvailabilityChanged` is a single slot on a
+  /// process-wide singleton, and two surfaces want it: the deprecated
+  /// `BifoldCaptureAccessory` and the unified `BifoldRearDisplay`. Each used
+  /// to assign it directly, so whichever registered last silently deadened
+  /// the other stream -- an app migrating from one to the other, with both
+  /// bound, would see one of them simply stop. The plugin owns the slot now
+  /// and fans out, so both surfaces keep working side by side, which is what
+  /// deprecating rather than removing the accessory promises.
+  private func publishAccessoryAvailability(_ available: Bool) {
+    emitRearDisplay()
+    accessorySink?(available)
+  }
+
   /// The last payload sent, so an unchanged state is not resent.
   ///
   /// `layoutSubviews` fires far more often than the fold state changes, and
@@ -62,10 +78,40 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   /// resolving the view eagerly here would always come up empty.
   private weak var registrar: (NSObjectProtocol & FlutterPluginRegistrar)?
 
-  init(registrar: NSObjectProtocol & FlutterPluginRegistrar) {
+  /// - Parameter registrar: the host registrar, or nil.
+  ///
+  /// Optional because the stored reference already is, and weak: the plugin
+  /// has to answer every method with no host view anyway, since that is its
+  /// state during app launch. Accepting nil makes that state reachable from a
+  /// test instead of only from a race.
+  init(registrar: (NSObjectProtocol & FlutterPluginRegistrar)?) {
     self.registrar = registrar
     self.foldReader = FoldReader()
     super.init()
+  }
+
+  /// Releases everything this plugin attached to the host.
+  ///
+  /// Called when the engine is destroyed. Without it nothing was torn down on
+  /// `FlutterEngine.destroyContext()`: the layout sentinel stayed in the view
+  /// hierarchy with a live callback, the hinge interaction stayed on the view,
+  /// and -- the one that actually matters -- the arrangement oracle's child
+  /// view controller stayed parented to the *host*, which only an explicit
+  /// `releaseArrangement` ever removed. The host usually dies with the engine,
+  /// which is why this was latent rather than visible, but an app that keeps
+  /// its view controller across engines would accumulate all three.
+  public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
+    observation?.cancel()
+    observation = nil
+    eventSink = nil
+    accessorySink = nil
+    rearDisplaySink = nil
+    lastPayload = nil
+    if #available(iOS 27.1, *) {
+      oracle?.detach()
+      oracle = nil
+      CaptureAccessory.unregister()
+    }
   }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -84,7 +130,7 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
     eventChannel.setStreamHandler(instance)
 
     let rearDisplayChannel = FlutterEventChannel(
-      name: "dev.bifold/rear_display",
+      name: Channels.rearDisplayEvents,
       binaryMessenger: registrar.messenger()
     )
     rearDisplayChannel.setStreamHandler(
@@ -122,11 +168,15 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
     switch call.method {
     case "getFoldInfo":
       guard let view = flutterView() else {
+        // Not an error: the view simply has not loaded yet, which is a normal
+        // startup race. Returning a FlutterError here made Dart report it
+        // through FlutterError.reportError, putting a red error in the console
+        // on a healthy launch. Android answers with an unresolved payload in
+        // the same situation; this now matches it.
         result(
-          FlutterError(
-            code: ErrorCode.noView,
-            message: "The Flutter view is not available yet.",
-            details: nil
+          FoldReader.unsupportedPayload(
+            version: payloadVersion,
+            isResolved: false
           )
         )
         return
@@ -167,8 +217,9 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
         libraryURI: args["libraryUri"] as? String
       )
       if registered {
-        CaptureAccessory.shared?.onAvailabilityChanged = { [weak self] _ in
-          self?.emitRearDisplay()
+        CaptureAccessory.shared?.onAvailabilityChanged = {
+          [weak self] available in
+          self?.publishAccessoryAvailability(available)
         }
         CaptureAccessory.shared?.isEnabled = true
       }
@@ -184,8 +235,6 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
         emitRearDisplay()
       }
       result(nil)
-    case "isSupported":
-      result(FoldReader.isSupported)
     case "debugDescribeNativeApi":
       result(NativeApiProbe.describe(view: flutterView()))
 
@@ -257,8 +306,9 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
         libraryURI: args["libraryUri"] as? String
       )
       if registered {
-        CaptureAccessory.shared?.onAvailabilityChanged = { [weak self] available in
-          self?.accessorySink?(available)
+        CaptureAccessory.shared?.onAvailabilityChanged = {
+          [weak self] available in
+          self?.publishAccessoryAvailability(available)
         }
       }
       result(registered)
@@ -324,6 +374,40 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
     return ["presentation": presentation, "transfer": "unsupported"]
   }
 
+  /// Retries attaching the fold observation until the Flutter view exists.
+  ///
+  /// `flutterView()` is nil until the host view controller has loaded its
+  /// view, which is a normal startup race rather than a failure. Android
+  /// recovers from the equivalent state by re-registering when its activity
+  /// arrives; this is the iOS counterpart.
+  ///
+  /// Bounded on purpose. If the view has not appeared after this many frames
+  /// something other than timing is wrong, and retrying forever would keep a
+  /// timer alive for the life of the process on every platform that has no
+  /// fold to report.
+  private func scheduleAttach(attempt: Int) {
+    let maxAttempts = 60
+    guard attempt < maxAttempts, eventSink != nil, observation == nil else {
+      return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+      guard let self, let sink = self.eventSink, self.observation == nil else {
+        return
+      }
+      guard let view = self.flutterView() else {
+        self.scheduleAttach(attempt: attempt + 1)
+        return
+      }
+      self.emit(from: view, to: sink)
+      self.observation = self.foldReader.observe(view: view) { [weak self] in
+        guard let self, let sink = self.eventSink,
+          let view = self.flutterView()
+        else { return }
+        self.emit(from: view, to: sink)
+      }
+    }
+  }
+
   private func flutterView() -> UIView? {
     // `isViewLoaded` avoids forcing the view to load early, which would
     // trigger a layout pass before UIKit is ready to report regions.
@@ -344,11 +428,30 @@ extension BifoldPlugin: FlutterStreamHandler {
   ) -> FlutterError? {
     eventSink = events
 
+    // Re-listening must not leave the previous observation in place. The old
+    // sentinel lives in the view hierarchy, and FoldObservation held it
+    // weakly while its superview held it strongly, so it could never be
+    // removed -- it kept firing its layout callback and double-emitted, one
+    // extra copy per hot restart.
+    observation?.cancel()
+    observation = nil
+
     guard let view = flutterView() else {
-      // Report the unsupported state rather than failing: Dart treats a stream
+      // Report the unresolved state rather than failing: Dart treats a stream
       // that never emits as a hang, and an app on a non-foldable device is a
-      // perfectly normal case.
-      events(FoldReader.unsupportedPayload(version: payloadVersion))
+      // perfectly normal case. isResolved is false on purpose -- the view not
+      // being loaded is the absence of an answer, and sending it as resolved
+      // made a healthy foldable look like a proven non-foldable on frame one.
+      events(
+        FoldReader.unsupportedPayload(version: payloadVersion, isResolved: false)
+      )
+      // ...and then keep trying. Returning here used to end the matter: the
+      // observation was only ever created on this path, so a stream that
+      // started before the view loaded stayed open and silent for the life of
+      // the engine, reporting no fold forever on a real foldable. The view
+      // loads within the first frames, so a short retry covers the race
+      // without polling indefinitely.
+      scheduleAttach(attempt: 0)
       return nil
     }
 

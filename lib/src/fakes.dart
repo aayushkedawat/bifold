@@ -7,6 +7,7 @@ import 'package:flutter/painting.dart' show EdgeInsets;
 import 'bifold_platform_interface.dart';
 import 'capabilities.dart';
 import 'models.dart';
+import 'rear_display.dart';
 
 /// Ready-made [FoldInfo] values for tests and previews.
 ///
@@ -53,6 +54,41 @@ abstract final class FoldInfoFakes {
     pose: FoldPose.closed,
     regions: <FoldRegion>[],
     hingeAngle: 0,
+    // The cover display behaves like a conventional phone.
+    horizontalSizeClass: FoldSizeClass.compact,
+    verticalSizeClass: FoldSizeClass.regular,
+    isResolved: true,
+  );
+
+  /// A resolved non-foldable phone.
+  ///
+  /// The most common device in any app's install base, and the case
+  /// [FoldInfo.unsupported] cannot stand in for: this one has *answered*.
+  /// Use it to check that a layout settles on its no-fold branch rather than
+  /// waiting forever for a platform that already replied.
+  static const FoldInfo flat = FoldInfo(
+    isFoldable: false,
+    display: FoldDisplay.none,
+    pose: FoldPose.unknown,
+    regions: <FoldRegion>[],
+    horizontalSizeClass: FoldSizeClass.compact,
+    verticalSizeClass: FoldSizeClass.regular,
+    isResolved: true,
+  );
+
+  /// A foldable whose hinge sensor is present but silent.
+  ///
+  /// `hasHingeAngle` is true while [FoldInfo.hingeAngle] is null, which is the
+  /// state a sensor that never delivers produces. A hinge-reactive UI should
+  /// fall back to [FoldInfo.pose] here rather than wait for a reading.
+  static const FoldInfo silentHinge = FoldInfo(
+    isFoldable: true,
+    display: FoldDisplay.inner,
+    pose: FoldPose.fullyOpen,
+    regions: <FoldRegion>[],
+    horizontalSizeClass: FoldSizeClass.regular,
+    verticalSizeClass: FoldSizeClass.regular,
+    isResolved: true,
   );
 
   /// A foldable open flat on its inner display.
@@ -73,6 +109,10 @@ abstract final class FoldInfoFakes {
           _occlusion(viewSize, isActive: cameraActive),
         ]),
         hingeAngle: math.pi,
+        horizontalSizeClass: FoldSizeClass.regular,
+        verticalSizeClass: FoldSizeClass.regular,
+        verticalBarEdge: VerticalBarEdge.trailing,
+        isResolved: true,
       );
 
   /// A foldable part-way open, so the inner display is creased.
@@ -99,6 +139,10 @@ abstract final class FoldInfoFakes {
           _occlusion(viewSize, isActive: cameraActive),
         ]),
         hingeAngle: hingeAngle,
+        horizontalSizeClass: FoldSizeClass.regular,
+        verticalSizeClass: FoldSizeClass.regular,
+        verticalBarEdge: VerticalBarEdge.trailing,
+        isResolved: true,
       );
 
   /// A foldable whose division runs top-to-bottom rather than side-to-side.
@@ -131,6 +175,9 @@ abstract final class FoldInfoFakes {
         ),
       ]),
       hingeAngle: math.pi / 2,
+      horizontalSizeClass: FoldSizeClass.regular,
+      verticalSizeClass: FoldSizeClass.regular,
+      isResolved: true,
     );
   }
 
@@ -147,8 +194,10 @@ abstract final class FoldInfoFakes {
   /// }
   /// ```
   static Map<String, FoldInfo> poseMatrix(Size viewSize) => <String, FoldInfo>{
-        'unsupported': unsupported,
+        'unsupported (nothing has answered yet)': unsupported,
+        'flat (resolved non-foldable)': flat,
         'closed': closed,
+        'foldable with a silent hinge': silentHinge,
         'fullyOpen': fullyOpen(viewSize: viewSize),
         'partiallyOpen': partiallyOpen(viewSize: viewSize),
         'partiallyOpen (zero-thickness crease)': partiallyOpen(
@@ -191,6 +240,50 @@ abstract final class FoldInfoFakes {
         margins: EdgeInsets.zero,
         isActive: isActive,
       );
+}
+
+/// Ready-made [RearDisplayAvailability] values for tests and previews.
+///
+/// Covers the five situations a rear-display UI has to handle, which is one
+/// more than [RearDisplayStatus] has values: "nothing has reported yet" is not
+/// a status, it is the absence of one.
+abstract final class RearDisplayFakes {
+  /// Nothing has reported yet. A control should wait, not hide.
+  static const RearDisplayAvailability unresolved =
+      RearDisplayAvailability.unresolved;
+
+  /// Settled: this device cannot present at all. Hide the control.
+  static const RearDisplayAvailability unsupported =
+      RearDisplayAvailability.none;
+
+  /// Supported, but not right now — on iOS, no capture session is running.
+  /// Disable the control rather than hiding it.
+  static const RearDisplayAvailability unavailable = RearDisplayAvailability(
+    presentation: RearDisplayStatus.unavailable,
+    transfer: RearDisplayStatus.unsupported,
+    isResolved: true,
+  );
+
+  /// Ready to start.
+  static const RearDisplayAvailability available = RearDisplayAvailability(
+    presentation: RearDisplayStatus.available,
+    transfer: RearDisplayStatus.unsupported,
+    isResolved: true,
+  );
+
+  /// A presentation session is running.
+  static const RearDisplayAvailability presenting = RearDisplayAvailability(
+    presentation: RearDisplayStatus.active,
+    transfer: RearDisplayStatus.unsupported,
+    isResolved: true,
+  );
+
+  /// Both modes offered, which only Android does.
+  static const RearDisplayAvailability bothAvailable = RearDisplayAvailability(
+    presentation: RearDisplayStatus.available,
+    transfer: RearDisplayStatus.available,
+    isResolved: true,
+  );
 }
 
 /// Ready-made [BifoldCapabilities] for tests and previews.
@@ -263,6 +356,50 @@ abstract final class BifoldCapabilityFakes {
         },
       );
 
+  /// Two physical displays with a gap between them.
+  ///
+  /// Shipped so a layout can be tested against the shape, even though no
+  /// platform can currently report it: `FoldFormFactor.dualScreen` needs
+  /// stronger evidence than a hinge orientation, which cannot tell one
+  /// flexible display from two physical ones. The occlusion capability is
+  /// `supported` here because a real gap genuinely hides content, which is
+  /// what separates this shape from a crease.
+  static BifoldCapabilities dualScreen() => _build(
+        formFactor: FoldFormFactor.dualScreen,
+        evidence: <FoldFeature, CapabilityEvidence>{
+          FoldFeature.fold: _yes('fake.dual_screen'),
+          FoldFeature.hingeAngle: _yes('fake.dual_screen'),
+          FoldFeature.halfOpenedPosture: _yes('fake.dual_screen'),
+          FoldFeature.reservedRegions: _yes('fake.dual_screen'),
+          FoldFeature.separatingFold: _yes('fake.dual_screen'),
+          FoldFeature.foldOcclusion: _yes('fake.dual_screen'),
+          FoldFeature.coverDisplay: _no('fake.dual_screen'),
+          FoldFeature.rearDisplay: _no('fake.dual_screen'),
+        },
+      );
+
+  /// A book foldable that can move the whole app to its outer display.
+  ///
+  /// The only profile offering [RearDisplayMode.transfer], which has no iOS
+  /// equivalent — so without this nothing exercises the Android-only path.
+  static BifoldCapabilities bookWithTransfer() => _build(
+        formFactor: FoldFormFactor.book,
+        rearDisplayModes: const <RearDisplayMode>{
+          RearDisplayMode.presentation,
+          RearDisplayMode.transfer,
+        },
+        evidence: <FoldFeature, CapabilityEvidence>{
+          FoldFeature.fold: _yes('fake.book_transfer'),
+          FoldFeature.hingeAngle: _yes('fake.book_transfer'),
+          FoldFeature.halfOpenedPosture: _yes('fake.book_transfer'),
+          FoldFeature.reservedRegions: _yes('fake.book_transfer'),
+          FoldFeature.separatingFold: _yes('fake.book_transfer'),
+          FoldFeature.foldOcclusion: _no('fake.book_transfer'),
+          FoldFeature.coverDisplay: _yes('fake.book_transfer'),
+          FoldFeature.rearDisplay: _yes('fake.book_transfer'),
+        },
+      );
+
   /// A foldable seen only while shut, so almost nothing is established.
   ///
   /// The case that catches code treating a false `hasX` as a proven "no":
@@ -329,16 +466,82 @@ class FakeBifoldPlatform extends BifoldPlatform {
   FakeBifoldPlatform({
     FoldInfo initial = FoldInfo.unsupported,
     BifoldCapabilities capabilities = BifoldCapabilities.unresolved,
+    RearDisplayAvailability rearDisplay = RearDisplayAvailability.unresolved,
   })  : _info = initial,
-        _capabilities = capabilities;
+        _capabilities = capabilities,
+        _rearDisplay = rearDisplay;
 
   final StreamController<FoldInfo> _foldEvents =
       StreamController<FoldInfo>.broadcast();
   final StreamController<BifoldCapabilities> _capabilityEvents =
       StreamController<BifoldCapabilities>.broadcast();
+  final StreamController<RearDisplayAvailability> _rearDisplayEvents =
+      StreamController<RearDisplayAvailability>.broadcast();
 
   FoldInfo _info;
   BifoldCapabilities _capabilities;
+  RearDisplayAvailability _rearDisplay;
+
+  int _foldStreamRequests = 0;
+
+  /// How many times [foldInfoStream] has been asked for.
+  ///
+  /// Lets a test assert that several `BifoldScope`s each take the stream but
+  /// that only one subscription exists behind them — which is the property
+  /// `MethodChannelBifold` provides by memoising its stream, and the one worth
+  /// locking in.
+  int get foldStreamRequests => _foldStreamRequests;
+
+  /// Whether anything is currently subscribed to the fold stream.
+  ///
+  /// A count of individual subscribers is deliberately not offered: a
+  /// broadcast controller reports only its first listen and its last cancel,
+  /// so any number derived from those callbacks would be wrong rather than
+  /// merely coarse.
+  bool get foldStreamIsSubscribed => _foldEvents.hasListener;
+
+  Completer<FoldInfo>? _pendingRead;
+
+  /// Makes the next [getFoldInfo] hang until [completePendingRead] is called.
+  ///
+  /// The seed query racing the stream is a real startup condition — a slow
+  /// one-shot read must never overwrite newer stream state — and it cannot be
+  /// reproduced without holding the read open.
+  void holdNextRead() => _pendingRead ??= Completer<FoldInfo>();
+
+  /// Releases a read held by [holdNextRead], answering with [info] or the
+  /// current state.
+  void completePendingRead([FoldInfo? info]) {
+    final Completer<FoldInfo>? pending = _pendingRead;
+    _pendingRead = null;
+    if (pending != null && !pending.isCompleted) {
+      pending.complete(info ?? _info);
+    }
+  }
+
+  /// Pushes an error through the fold stream.
+  ///
+  /// A platform can fail mid-flight, and a scope has to survive it rather than
+  /// tear down the subtree beneath it. Nothing else can produce that state.
+  void emitError(Object error) => _foldEvents.addError(error);
+
+  /// Pushes a new rear-display availability to every listener.
+  void emitRearDisplay(RearDisplayAvailability availability) {
+    _rearDisplay = availability;
+    _rearDisplayEvents.add(availability);
+  }
+
+  /// What [presentOnRearDisplay] and [transferToRearDisplay] will answer.
+  ///
+  /// The system is allowed to refuse, and an app has to stay usable when it
+  /// does, so a test needs to be able to make it refuse.
+  bool rearDisplayRequestsSucceed = true;
+
+  /// Every rear-display call made on this fake, in order.
+  ///
+  /// For asserting that a UI asked for what it said it would — `present`,
+  /// `transfer` or `end` — without reaching a platform channel.
+  final List<String> rearDisplayCalls = <String>[];
 
   /// Pushes a new fold state to every listener.
   void emit(FoldInfo info) {
@@ -352,17 +555,28 @@ class FakeBifoldPlatform extends BifoldPlatform {
     _capabilityEvents.add(capabilities);
   }
 
-  /// Closes both streams. Call from `addTearDown`.
+  /// Closes every stream. Call from `addTearDown`.
   Future<void> dispose() async {
+    completePendingRead();
     await _foldEvents.close();
     await _capabilityEvents.close();
+    await _rearDisplayEvents.close();
   }
 
   @override
-  Future<FoldInfo> getFoldInfo() async => _info;
+  Future<FoldInfo> getFoldInfo() {
+    final Completer<FoldInfo>? pending = _pendingRead;
+    if (pending != null) {
+      return pending.future;
+    }
+    return Future<FoldInfo>.value(_info);
+  }
 
   @override
-  Stream<FoldInfo> foldInfoStream() => _foldEvents.stream;
+  Stream<FoldInfo> foldInfoStream() {
+    _foldStreamRequests++;
+    return _foldEvents.stream;
+  }
 
   @override
   Future<BifoldCapabilities> getCapabilities() async => _capabilities;
@@ -372,4 +586,62 @@ class FakeBifoldPlatform extends BifoldPlatform {
 
   @override
   Future<String?> debugDescribeNativeApi() async => 'FakeBifoldPlatform';
+
+  @override
+  Future<RearDisplayAvailability> rearDisplayStatus() async => _rearDisplay;
+
+  @override
+  Stream<RearDisplayAvailability> rearDisplayAvailabilityStream() =>
+      _rearDisplayEvents.stream;
+
+  @override
+  Future<bool> presentOnRearDisplay({
+    required String entrypoint,
+    String? libraryUri,
+  }) async {
+    rearDisplayCalls.add('present:$entrypoint');
+    if (!rearDisplayRequestsSucceed) {
+      return false;
+    }
+    emitRearDisplay(
+      RearDisplayAvailability(
+        presentation: RearDisplayStatus.active,
+        transfer: _rearDisplay.transfer,
+        isResolved: true,
+      ),
+    );
+    return true;
+  }
+
+  @override
+  Future<bool> transferToRearDisplay() async {
+    rearDisplayCalls.add('transfer');
+    if (!rearDisplayRequestsSucceed) {
+      return false;
+    }
+    emitRearDisplay(
+      RearDisplayAvailability(
+        presentation: _rearDisplay.presentation,
+        transfer: RearDisplayStatus.active,
+        isResolved: true,
+      ),
+    );
+    return true;
+  }
+
+  @override
+  Future<void> endRearDisplay() async {
+    rearDisplayCalls.add('end');
+    emitRearDisplay(
+      RearDisplayAvailability(
+        presentation: _rearDisplay.presentation == RearDisplayStatus.active
+            ? RearDisplayStatus.available
+            : _rearDisplay.presentation,
+        transfer: _rearDisplay.transfer == RearDisplayStatus.active
+            ? RearDisplayStatus.available
+            : _rearDisplay.transfer,
+        isResolved: true,
+      ),
+    );
+  }
 }

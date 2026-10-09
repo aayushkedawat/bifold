@@ -4,12 +4,41 @@ import 'package:flutter/widgets.dart';
 import '../models.dart';
 import 'bifold_scope.dart';
 
+/// The width at which two panes stop being cramped, in logical pixels.
+///
+/// Used wherever this package has to decide whether there is room for two
+/// panes without the platform having reported a size class — on a flat
+/// display, on a tablet, on desktop, and on any device with no native fold
+/// support at all.
+///
+/// 600 is Material's own compact-to-medium boundary and the width at which
+/// Android reports a non-compact window size class, so a layout that follows
+/// it agrees with the rest of the system rather than inventing a third
+/// opinion. It is deliberately a single constant: [BifoldSplit] and
+/// `BifoldScaffold` both consult it, and two different numbers would make
+/// them disagree about the same window.
+const double kBifoldRegularWidthBreakpoint = 600.0;
+
 /// What [BifoldSplit] does when there is no active division to split across.
 enum BifoldSplitFallback {
+  /// Side by side where there is room, stacked where there is not.
+  ///
+  /// This is the default. "Room" is [FoldInfo.isRegular] when the platform
+  /// reports size classes, and the available width against
+  /// [kBifoldRegularWidthBreakpoint] when it does not — which is the case on
+  /// a device with no native fold support, including desktop and web.
+  ///
+  /// This is what makes the widget correct on an open foldable. A fold is
+  /// only reported as *active* while the device is part-way open, so a flat
+  /// inner display — the very shape a two-pane layout is for — takes this
+  /// path rather than the splitting one.
+  adaptive,
+
   /// Stack the panes vertically, [BifoldSplit.start] above [BifoldSplit.end].
   ///
-  /// This is the default, and matches how the platform's own split
-  /// arrangement collapses when the device is shut.
+  /// Matches how the platform's own split arrangement collapses when the
+  /// device is shut. This was the default before 1.0.0, where it put two
+  /// panes one above the other on a tablet-sized open display.
   stack,
 
   /// Place the panes side by side, splitting the space evenly.
@@ -55,7 +84,7 @@ class BifoldSplit extends StatefulWidget {
   const BifoldSplit({
     required this.start,
     required this.end,
-    this.fallback = BifoldSplitFallback.stack,
+    this.fallback = BifoldSplitFallback.adaptive,
     this.spacing = 0.0,
     super.key,
   });
@@ -69,7 +98,9 @@ class BifoldSplit extends StatefulWidget {
   /// How to lay out when there is no active division to split across.
   ///
   /// This applies on the outer display, while the device is flat or shut, and
-  /// on every non-foldable device.
+  /// on every non-foldable device — which is to say most of the time, because
+  /// a division is only active while the device is part-way open. Defaults to
+  /// [BifoldSplitFallback.adaptive].
   final BifoldSplitFallback fallback;
 
   /// Gap between the panes when [fallback] positions them, in logical pixels.
@@ -129,7 +160,7 @@ class _BifoldSplitState extends State<BifoldSplit> {
         // An unbounded constraint gives no geometry to split, and a division
         // that does not span this box cannot separate it.
         if (division == null || !size.isFinite || size.isEmpty) {
-          return _buildFallback(size);
+          return _buildFallback(size, info);
         }
 
         _scheduleMeasure();
@@ -142,12 +173,12 @@ class _BifoldSplitState extends State<BifoldSplit> {
 
         final bool spansThisBox = _spans(avoid, size, division.isHorizontal);
         if (!spansThisBox) {
-          return _buildFallback(size);
+          return _buildFallback(size, info);
         }
 
         return division.isHorizontal
-            ? _buildHorizontalSplit(size, avoid)
-            : _buildVerticalSplit(size, avoid);
+            ? _buildHorizontalSplit(size, avoid, info)
+            : _buildVerticalSplit(size, avoid, info);
       },
     );
   }
@@ -171,7 +202,7 @@ class _BifoldSplitState extends State<BifoldSplit> {
         frame.left < size.width;
   }
 
-  Widget _buildHorizontalSplit(Size size, Rect avoid) {
+  Widget _buildHorizontalSplit(Size size, Rect avoid, FoldInfo info) {
     final double startHeight = avoid.top.clamp(0.0, size.height);
     final double endTop = avoid.bottom.clamp(0.0, size.height);
     final double endHeight = size.height - endTop;
@@ -180,7 +211,7 @@ class _BifoldSplitState extends State<BifoldSplit> {
     // view. With nothing left for one pane, a split would be worse than the
     // fallback.
     if (startHeight <= 0 || endHeight <= 0) {
-      return _buildFallback(size);
+      return _buildFallback(size, info);
     }
 
     return Stack(
@@ -203,13 +234,13 @@ class _BifoldSplitState extends State<BifoldSplit> {
     );
   }
 
-  Widget _buildVerticalSplit(Size size, Rect avoid) {
+  Widget _buildVerticalSplit(Size size, Rect avoid, FoldInfo info) {
     final double startWidth = avoid.left.clamp(0.0, size.width);
     final double endLeft = avoid.right.clamp(0.0, size.width);
     final double endWidth = size.width - endLeft;
 
     if (startWidth <= 0 || endWidth <= 0) {
-      return _buildFallback(size);
+      return _buildFallback(size, info);
     }
 
     return Stack(
@@ -232,26 +263,40 @@ class _BifoldSplitState extends State<BifoldSplit> {
     );
   }
 
-  Widget _buildFallback(Size size) {
+  Widget _buildFallback(Size size, FoldInfo info) {
     switch (widget.fallback) {
+      case BifoldSplitFallback.adaptive:
+        // Prefer what the platform says over what the box measures: a size
+        // class accounts for the whole window, while this widget may have
+        // been handed a fraction of it. Fall back to the width only where no
+        // size class was reported at all.
+        final bool roomForTwo =
+            info.horizontalSizeClass == FoldSizeClass.unspecified
+                ? size.width >= kBifoldRegularWidthBreakpoint
+                : info.isRegular;
+        return roomForTwo ? _sideBySide() : _stacked();
       case BifoldSplitFallback.startOnly:
         return widget.start;
       case BifoldSplitFallback.stack:
-        return Column(
-          children: <Widget>[
-            Expanded(child: widget.start),
-            if (widget.spacing > 0) SizedBox(height: widget.spacing),
-            Expanded(child: widget.end),
-          ],
-        );
+        return _stacked();
       case BifoldSplitFallback.sideBySide:
-        return Row(
-          children: <Widget>[
-            Expanded(child: widget.start),
-            if (widget.spacing > 0) SizedBox(width: widget.spacing),
-            Expanded(child: widget.end),
-          ],
-        );
+        return _sideBySide();
     }
   }
+
+  Widget _stacked() => Column(
+        children: <Widget>[
+          Expanded(child: widget.start),
+          if (widget.spacing > 0) SizedBox(height: widget.spacing),
+          Expanded(child: widget.end),
+        ],
+      );
+
+  Widget _sideBySide() => Row(
+        children: <Widget>[
+          Expanded(child: widget.start),
+          if (widget.spacing > 0) SizedBox(width: widget.spacing),
+          Expanded(child: widget.end),
+        ],
+      );
 }

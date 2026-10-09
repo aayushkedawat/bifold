@@ -45,6 +45,15 @@ final class FoldReader {
   /// rather than the device.
   private(set) var sawDivision = false
 
+  /// Whether the reserved-region query has actually run against a view.
+  ///
+  /// Separates "this device has no fold" from "nobody has looked yet". The
+  /// region APIs answer only once there is a laid-out view to ask about, so
+  /// before the first query a device with no division is indistinguishable
+  /// from one that has not been inspected. Once the query has run and found
+  /// no division, reporting no fold is an answer rather than a default.
+  private(set) var queriedRegions = false
+
   // MARK: - Verified symbols
 
   private enum Symbol {
@@ -115,23 +124,60 @@ final class FoldReader {
   /// The payload sent when there is nothing to report.
   ///
   /// Shaped identically to a real reading so Dart has one decode path.
-  static func unsupportedPayload(version: Int) -> [String: Any] {
+  /// - Parameter isResolved: whether this is an answer or an absence of one.
+  ///   `true` says the platform established that there is no fold; `false`
+  ///   says nothing has been established yet. Dart reads the key strictly, so
+  ///   the difference reaches `FoldInfo.isResolved` rather than being guessed.
+  static func unsupportedPayload(
+    version: Int,
+    isResolved: Bool,
+    capabilityRevision: Int = 0
+  ) -> [String: Any] {
     return [
       "version": version,
       "isFoldable": false,
       "display": "none",
       "pose": "unknown",
       "regions": [[String: Any]](),
+      "isResolved": isResolved,
+      "capabilityRevision": capabilityRevision,
     ]
   }
 
   /// Reads the current fold state from `view`.
-  func read(from view: UIView, version: Int) -> [String: Any] {
-    guard FoldReader.isSupported, isFoldableDevice() else {
-      return FoldReader.unsupportedPayload(version: version)
+  func read(
+    from view: UIView,
+    version: Int,
+    capabilityRevision: Int = 0
+  ) -> [String: Any] {
+    // The running OS does not expose the fold APIs at all. That is a complete
+    // answer: nothing on this device will ever report a fold.
+    guard FoldReader.isSupported else {
+      return FoldReader.unsupportedPayload(
+        version: version,
+        isResolved: true,
+        capabilityRevision: capabilityRevision
+      )
+    }
+    // Read the regions before deciding whether this device folds, not after.
+    // A division region is itself evidence of a fold, and the act of having
+    // looked is what turns a later "no division" into an answer instead of an
+    // absence of one. Asking first costs one query on a non-foldable device
+    // and removes a circular dependency: while this ran after the check, a
+    // non-foldable never reached the query, so it could never resolve, and a
+    // consumer gating its first layout on `isResolved` waited forever.
+    let regions = readRegions(from: view)
+
+    guard isFoldableDevice() else {
+      // The OS has the APIs, so this is an iPhone or iPad on a release that
+      // supports folding -- but nothing has shown that *this* device folds.
+      return FoldReader.unsupportedPayload(
+        version: version,
+        isResolved: queriedRegions,
+        capabilityRevision: capabilityRevision
+      )
     }
 
-    let regions = readRegions(from: view)
     let display = readDisplay(for: view)
     let traits = view.traitCollection
     var payload: [String: Any] = [
@@ -143,6 +189,10 @@ final class FoldReader {
       "horizontalSizeClass": FoldReader.sizeClassName(traits.horizontalSizeClass),
       "verticalSizeClass": FoldReader.sizeClassName(traits.verticalSizeClass),
       "verticalBarEdge": FoldReader.verticalBarEdgeName(traits),
+      // Reaching here means a hinge or a division has been seen, which is the
+      // evidence this device folds.
+      "isResolved": true,
+      "capabilityRevision": capabilityRevision,
     ]
     if let angle = hinge.state?.angle {
       payload["hingeAngle"] = angle
@@ -159,13 +209,15 @@ final class FoldReader {
   /// hinge updates", so a hinge that has ever been reported means a real fold.
   ///
   /// Until the first hinge update arrives, fall back to the presence of a
-  /// division region, and then to the phone idiom — which at least keeps an
-  /// iPad from being announced as a foldable phone.
+  /// division region. There is deliberately no third fallback: the phone
+  /// idiom used to stand in for one, which made every iPhone on a release
+  /// with the fold APIs announce itself as a foldable — and, because
+  /// `readDisplay` reports `outer` for any non-regular trait collection, an
+  /// ordinary iPhone in portrait reported `isFoldable: true, pose: closed`.
+  /// `CapabilityReader` answers `unknown` in this situation; this now agrees
+  /// with it instead of guessing.
   private func isFoldableDevice() -> Bool {
-    if hinge.sawHinge {
-      return true
-    }
-    return UIDevice.current.userInterfaceIdiom == .phone
+    return hinge.sawHinge || sawDivision
   }
 
   /// Names a `UIUserInterfaceSizeClass` for the channel.
@@ -291,6 +343,12 @@ final class FoldReader {
       ("occlusion", FoldReader.occlusionKindObject),
     ]
 
+    // The query is about to run against a real view, which is what makes a
+    // subsequent "no division" meaningful rather than merely unexamined.
+    if FoldReader.divisionKindObject != nil {
+      queriedRegions = true
+    }
+
     for (name, kind) in kinds {
       guard let kind else { continue }
       for region in rawRegions(from: view, kind: kind) {
@@ -410,7 +468,15 @@ final class FoldReader {
 
 /// A cancellable fold-state observation.
 final class FoldObservation {
-  private weak var sentinel: LayoutSentinel?
+  /// Held strongly, on purpose.
+  ///
+  /// The sentinel's superview also retains it, so a weak reference here looked
+  /// harmless -- but it meant that once this object was released the sentinel
+  /// could no longer be reached to remove it. It stayed in the Flutter view
+  /// hierarchy with a live `onLayout` closure, emitting on every layout pass,
+  /// and a fresh observation added another on top: one extra emitter per hot
+  /// restart. Owning it is what makes [cancel] able to finish the job.
+  private var sentinel: LayoutSentinel?
   private let hinge: HingeReader
 
   init(sentinel: LayoutSentinel, hinge: HingeReader) {
@@ -423,6 +489,12 @@ final class FoldObservation {
     sentinel?.removeFromSuperview()
     sentinel = nil
     hinge.detach()
+  }
+
+  deinit {
+    // Releasing the observation without cancelling it would leave the sentinel
+    // attached and firing, which is the leak this class exists to bound.
+    cancel()
   }
 }
 

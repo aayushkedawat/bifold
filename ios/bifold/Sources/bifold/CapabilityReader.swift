@@ -64,7 +64,38 @@ enum CapabilityReader {
         : evidence("unknown", "ios.UIHingeInteraction.present_unobserved"))
       : evidence("unsupported", "ios.hinge_api_absent")
 
+    // Anything that needs a fold to exist cannot be more certain than the
+    // fold itself. Keyed off symbol presence alone, the three capabilities
+    // below claimed a cover display, a half-open posture and reserved regions
+    // on an ordinary non-foldable iPhone running a release that merely *has*
+    // the fold APIs -- and contradicted themselves on iPad, reporting
+    // `fold: unsupported` beside `coverDisplay: supported`, which is not a
+    // state that exists. `hasCoverDisplay` is exactly what an app branches on
+    // to build cover-display UI, so a false positive there is expensive.
+    let foldStatus = fold["status"] as? String ?? "unknown"
+
+    /// Downgrades an OS-level answer by what is known about the fold.
+    ///
+    /// A capability cannot be `supported` on a device that has not been shown
+    /// to fold, and it is `unsupported` once the fold is ruled out.
+    func gatedByFold(_ osAnswer: [String: Any]) -> [String: Any] {
+      switch foldStatus {
+      case "supported":
+        return osAnswer
+      case "unsupported":
+        // No fold on this device, so nothing that depends on one exists.
+        return evidence("unsupported", "ios.no_fold_on_this_device")
+      default:
+        // The OS can do it; whether this device folds is still unestablished.
+        return evidence("unknown", "ios.fold_unobserved")
+      }
+    }
+
     return [
+      "version": 1,
+      // Brief decision 4: platform belongs in `raw` and the diagnostic
+      // report, never as a typed getter on BifoldCapabilities.
+      "platform": "ios",
       "isResolved": true,
       // Fold orientation is not reported on this platform, and the one shape
       // it could be is not worth asserting from an absence.
@@ -75,19 +106,23 @@ enum CapabilityReader {
         "hingeAngle": hinge,
         // The platform reports a part-way-open pose, so the capability is a
         // property of the OS rather than something to wait and observe.
+        // The platform reports a part-way-open pose, so on a device that
+        // folds this is a property of the OS rather than something to observe
+        // -- but it still needs the device to fold.
         "halfOpenedPosture": osHasHingeApi
-          ? evidence("supported", "ios.UIHingeStatus.partiallyOpen")
+          ? gatedByFold(evidence("supported", "ios.UIHingeStatus.partiallyOpen"))
           : evidence("unsupported", "ios.hinge_api_absent"),
         "rearDisplay": captureAccessorySupported
-          ? evidence("supported", "ios.captureAccessory")
+          ? gatedByFold(evidence("supported", "ios.captureAccessory"))
           : evidence("unsupported", "ios.capture_accessory_absent"),
         // The app runs on the outer display when the device is shut. That is
-        // how the platform behaves, not something to be queried.
+        // how the platform behaves, not something to be queried -- on a
+        // device that has an outer display to run on.
         "coverDisplay": osHasFoldApi
-          ? evidence("supported", "ios.outer_display")
+          ? gatedByFold(evidence("supported", "ios.outer_display"))
           : evidence("unsupported", "ios.fold_api_absent"),
         "reservedRegions": osHasFoldApi
-          ? evidence("supported", "ios.UIViewReservedRegion")
+          ? gatedByFold(evidence("supported", "ios.UIViewReservedRegion"))
           : evidence("unsupported", "ios.fold_api_absent"),
         "separatingFold": sawDivision
           ? evidence("supported", "ios.division_region.observed")

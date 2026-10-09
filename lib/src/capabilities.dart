@@ -457,9 +457,20 @@ class CapabilityResolver {
       evidence: Map<FoldFeature, CapabilityEvidence>.unmodifiable(merged),
       // A known shape is never replaced by an unknown one: folding a device
       // shut stops the platform describing its shape, it does not change it.
-      formFactor: incoming.formFactor == FoldFormFactor.unknown
-          ? _current.formFactor
-          : incoming.formFactor,
+      //
+      // `none` is the exception. It means "not a folding device", which stops
+      // being knowledge the moment anything proves a fold — and that pairing
+      // is reachable, because a missing plugin or a null payload absorbs
+      // `BifoldCapabilities.none` before the real device reports in. Holding
+      // it then produced `hasFold == true` with `formFactor == none`, which
+      // contradicts itself. Fall back to `unknown`: the shape genuinely is
+      // not established, and a caller can tell that apart from a flat phone.
+      formFactor: _mergeFormFactor(
+        held: _current.formFactor,
+        incoming: incoming.formFactor,
+        foldIsSupported:
+            merged[FoldFeature.fold]?.status == CapabilityStatus.supported,
+      ),
       rearDisplayModes: Set<RearDisplayMode>.unmodifiable(
         <RearDisplayMode>{
           ..._current.rearDisplayModes,
@@ -467,9 +478,34 @@ class CapabilityResolver {
         },
       ),
       isResolved: _current.isResolved || incoming.isResolved,
-      raw: incoming.raw.isEmpty ? _current.raw : incoming.raw,
+      // Merged rather than replaced. `raw` is documented as the escape hatch
+      // for reading a capability a newer native build added, and reports do
+      // not all carry the same keys — the fold stream's payload and the
+      // capability query's are built separately — so overwriting dropped
+      // whatever the previous one knew.
+      raw: <String, Object?>{..._current.raw, ...incoming.raw},
     );
     return _current;
+  }
+
+  /// Combines two reported shapes.
+  ///
+  /// `unknown` never displaces a known shape. `none` is knowledge only while
+  /// nothing has proved a fold; once something has, it is a contradiction and
+  /// gives way to the incoming answer, or to `unknown` when the incoming
+  /// report has no shape to offer either.
+  static FoldFormFactor _mergeFormFactor({
+    required FoldFormFactor held,
+    required FoldFormFactor incoming,
+    required bool foldIsSupported,
+  }) {
+    if (incoming != FoldFormFactor.unknown) {
+      return incoming;
+    }
+    if (foldIsSupported && held == FoldFormFactor.none) {
+      return FoldFormFactor.unknown;
+    }
+    return held;
   }
 
   static CapabilityEvidence _merge(
@@ -486,10 +522,15 @@ class CapabilityResolver {
     if (fresh.status == CapabilityStatus.supported) {
       return fresh;
     }
-    // Absence of a report is not a report of absence. The status stays
-    // unknown, but a fresh report that explains *why* it is unknown is better
-    // diagnostics than the placeholder it replaces.
+    // Absence of a report is not a report of absence. A fresh `unknown` may
+    // improve the diagnostics attached to something already unknown, but it
+    // must never undo a negative: `unsupported` is an authoritative answer,
+    // and letting a later "nothing seen, and here is why" overwrite it turned
+    // a settled "this device has no hinge sensor" back into "nobody knows".
     if (fresh.status == CapabilityStatus.unknown) {
+      if (held.status == CapabilityStatus.unsupported) {
+        return held;
+      }
       return fresh.source != null ? fresh : held;
     }
     return fresh;

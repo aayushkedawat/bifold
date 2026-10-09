@@ -177,14 +177,129 @@ void main() {
     expect(FoldInfoFakes.unsupported, FoldInfo.unsupported);
     expect(FoldInfoFakes.partiallyOpenVertical(viewSize: size), isNotNull);
   });
-  test('the capability examples build', () {
-    expect(capabilityGate, isNotNull);
-    expect(capabilitiesOutsideTheTree, isNotNull);
+  // These used to be `expect(someTearOff, isNotNull)`, which no change to the
+  // package could ever break -- a top-level function is never null. Their only
+  // real effect was to compile the examples, which `flutter analyze` already
+  // does. Calling them is what actually exercises the API the README promises.
+  testWidgets('the capability gate example renders each branch', (
+    tester,
+  ) async {
+    for (final profile in <BifoldCapabilities>[
+      BifoldCapabilityFakes.book(),
+      BifoldCapabilityFakes.flat,
+      BifoldCapabilityFakes.unresolved,
+    ]) {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: BifoldScope.fake(
+            info: FoldInfoFakes.closed,
+            capabilities: profile,
+            child: Builder(builder: capabilityGate),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Text), findsOneWidget);
+    }
   });
-  test('the testing examples build', () {
-    expect(fakeWithCapabilities, isNotNull);
-    expect(driveTheStream, isNotNull);
+
+  test('the capabilities-outside-the-tree example runs', () async {
+    final platform = FakeBifoldPlatform(
+      capabilities: BifoldCapabilityFakes.book(),
+    );
+    BifoldPlatform.instance = platform;
+    addTearDown(platform.dispose);
+    addTearDown(Bifold.debugReset);
+    Bifold.debugReset();
+
+    // Really invoked, so diagnosticReport() and sourceOf() are executed
+    // rather than merely compiled.
+    await capabilitiesOutsideTheTree();
+
+    final report = await Bifold.diagnosticReport();
+    expect(report, contains('bifold diagnostic report'));
+    expect(report, contains('Capabilities'));
+    expect(report, contains('fold'));
   });
+
+  testWidgets('the fake-with-capabilities example mounts', (tester) async {
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: fakeWithCapabilities(),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the drive-the-stream example reaches the tree', (tester) async {
+    // This one used to be unreachable by construction, which hid a real bug:
+    // it called addTearDown outside a test body, so invoking it threw.
+    final platform = FakeBifoldPlatform();
+    BifoldPlatform.instance = platform;
+    addTearDown(platform.dispose);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: BifoldScope(
+          child: Builder(
+            builder: (context) => Text(Bifold.of(context).pose.name),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    platform.emit(FoldInfoFakes.partiallyOpen(viewSize: size));
+    // The fake's stream is a broadcast controller, so delivery is a microtask
+    // behind the emit. One pump drains it, the next rebuilds.
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('partiallyOpen'), findsOneWidget);
+  });
+
+  testWidgets('the rear-display example compiles and mounts', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BifoldScope.fake(
+          info: FoldInfoFakes.fullyOpen(viewSize: size),
+          capabilities: BifoldCapabilityFakes.book(rearDisplay: true),
+          // Switch needs a Material ancestor.
+          child: Scaffold(body: Builder(builder: rearDisplayControl)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+}
+
+// --- The other display ----------------------------------------------------
+Widget rearDisplayControl(BuildContext context) {
+  final can = Bifold.capabilitiesOf(context);
+  if (!can.hasRearDisplay) {
+    return const SizedBox.shrink();
+  }
+  return StreamBuilder<RearDisplayAvailability>(
+    stream: BifoldRearDisplay.availability,
+    initialData: RearDisplayAvailability.unresolved,
+    builder: (context, snapshot) {
+      final now = snapshot.data ?? RearDisplayAvailability.unresolved;
+      final running = now.presentation == RearDisplayStatus.active;
+      return Switch(
+        value: running,
+        onChanged: now.presentation == RearDisplayStatus.available || running
+            ? (on) => on
+                ? BifoldRearDisplay.present(entrypoint: 'rearDisplayMain')
+                : BifoldRearDisplay.end()
+            : null,
+      );
+    },
+  );
 }
 
 // --- What can this device do? --------------------------------------------
@@ -220,9 +335,10 @@ Widget fakeWithCapabilities() => BifoldScope.fake(
       child: const SizedBox(),
     );
 
-void driveTheStream(WidgetTester tester) {
-  final platform = FakeBifoldPlatform();
+// The README's snippet, kept verbatim apart from taking the platform as an
+// argument: the original called addTearDown here, outside any test body, so
+// it would have thrown if anything had ever run it.
+void driveTheStream(FakeBifoldPlatform platform) {
   BifoldPlatform.instance = platform;
-  addTearDown(platform.dispose);
   platform.emit(FoldInfoFakes.partiallyOpen(viewSize: const Size(800, 1000)));
 }
