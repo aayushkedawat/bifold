@@ -26,7 +26,7 @@ that ships everywhere.
 
 ```yaml
 dependencies:
-  bifold: ^1.0.0
+  bifold: ^1.0.1
 ```
 
 Wrap your app once, near the root. There is no other setup — no `Info.plist`

@@ -1,3 +1,61 @@
+## 1.0.1
+
+Packaging and project documentation. No change to any published API, and no
+change to behaviour on either platform.
+
+**Fixed**
+
+* **The published archive now carries an example.** `.pubignore` excluded the
+  whole of `example/` — correct for a directory holding two native projects,
+  but it also hid `example/README.md`, which is the first path pana looks for
+  when deciding whether a package ships an example. So pub.dev scored 0/10 for
+  "Package has an example" while the example app sat in the repository, fully
+  built and running on both platforms. That one file is now published; the
+  rest of the directory still is not.
+
+  Note the pattern it took: `example/` with a trailing slash stops pub
+  descending into the directory at all, so a negation inside it can never
+  re-include anything. It has to be `example/*` followed by
+  `!example/README.md`.
+
+**Changed**
+
+* **`example/README.md` is now an example, not the Flutter template.** It was
+  the untouched "A few resources to get you started if this is your first
+  Flutter project" boilerplate, which is what pub.dev would have rendered as
+  the Example tab. It now covers the minimum setup, the aspect-scoped
+  accessors, a two-pane layout, the capability API, and what each tab of the
+  example app demonstrates.
+
+**Added**
+
+* **The example app demonstrates how to read fold state, not just what it
+  says.** A new **Reads** tab counts the builds each accessor causes, so
+  folding the device shows `Bifold.of` climbing while `Bifold.poseOf`,
+  `hingeAngleOf`, `regionsOf` and `displayOf` sit still until their own aspect
+  moves. The same tab drives `BifoldArrangement.measure()`, including the
+  `release()` it asks for — both were documented in the README and
+  demonstrated nowhere.
+
+  The app now also *practises* this. `HingeGauge` took a whole `FoldInfo` and
+  so rebuilt on every update, which for the one widget redrawn at sensor rate
+  is the exact pattern the README warns against; it now takes the `radians`
+  and `pose` it draws, and its caller watches those two aspects.
+
+* **Project documentation**: `CONTRIBUTING.md`, `SECURITY.md`, and a
+  Contributor Covenant 2.1 `CODE_OF_CONDUCT.md`, plus issue forms and a pull
+  request template under `.github/`.
+
+  The device report form is the one that matters. Nothing in this package has
+  run on physical hardware on either platform, so it asks for the output of
+  `Bifold.diagnosticReport()`, which poses were reported correctly, and what
+  did not match — including the three rear-display paths that have never
+  completed a round trip. `SECURITY.md` states the attack surface rather than
+  implying one: no network code, no permissions, nothing persisted.
+
+The archive grows from 152 KB to 158 KB, still well inside the 2 MB ceiling
+CI enforces.
+
 ## 1.0.0
 
 A stable API, and the correctness pass that earns the version number. Six bugs
@@ -307,6 +365,9 @@ and the `pixel_9_pro_fold` and flip-style Android emulators; see the
 
 ## 0.3.0
 
+*Tagged and released on GitHub, but never published to pub.dev. Everything
+below reached pub.dev in 1.0.0.*
+
 **Added — rear display**
 
 Content on the display that faces the rear camera, behind one API on both
@@ -462,6 +523,9 @@ doing; `BifoldCapabilities` says what it can ever do.
   either platform.
 
 ## 0.1.1
+
+*Tagged and released on GitHub, but never published to pub.dev. The fix below
+reached pub.dev in 0.2.0.*
 
 **Fixed**
 
