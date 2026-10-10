@@ -1,0 +1,60 @@
+name: Feature request
+description: Something bifold cannot express, or an API that reads badly.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        1.0.0 is a stability promise, so additive changes are easy and anything
+        that breaks an exhaustive `switch` in somebody's app is expensive. Both
+        are worth asking about — just expect the second to take longer.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to build?
+      description: |
+        The app, not the API. The package was designed by writing three
+        consumers against it and fixing whatever read badly, and that is still
+        the best way to judge a proposal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What does it take today?
+      description: |
+        The workaround, if you have one. If it needs a `Platform.isIOS` or
+        `Platform.isAndroid` branch, say so explicitly — that is an abstraction
+        failure in the package and is treated as a bug rather than a request.
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like instead?
+      description: Dart signatures welcome. So is "no idea, this just reads awkwardly".
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Is this about capability, availability or current state?
+      description: |
+        These are three separate questions in bifold and never share a field —
+        what the hardware *can* do, what can be used *right now*, and what is
+        happening *this frame*. If a request spans two of them it usually needs
+        splitting.
+      options:
+        - Capability — what the device can do
+        - Availability — whether it can be used right now
+        - Current state — what the device is doing
+        - Layout widgets
+        - Testing and fakes
+        - Something else or not sure
+    validations:
+      required: false

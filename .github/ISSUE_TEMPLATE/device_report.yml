@@ -1,0 +1,88 @@
+name: Device report
+description: Tell us what bifold did on a real foldable. The most useful report there is.
+title: "[device] "
+labels: ["device report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Thank you.** Nothing in this package has run on physical hardware, on
+        either platform — everything in the README's verification matrix is
+        simulator and emulator work. Your report is how that changes.
+
+        A report saying "everything matched" is worth just as much as one saying
+        it didn't. Please send it either way.
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: iPhone Duo, Pixel 10 Pro Fold, Galaxy Z Flip 7...
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS version
+      placeholder: iOS 27.1, Android 16
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: bifold and Flutter versions
+      placeholder: bifold 1.0.0, Flutter 3.44.4
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Bifold.diagnosticReport()
+      description: |
+        Call it anywhere, or open the **Can do** tab of the example app and
+        copy it from there. It builds a string and returns it — **nothing is
+        transmitted** — and it carries no identifier beyond the model string.
+        Read it before pasting if you would rather not share that.
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: poses
+    attributes:
+      label: Which poses did you see reported correctly?
+      description: Open the **Inspector** tab of the example app and fold the device.
+      options:
+        - label: Shut, reported as `closed`
+        - label: Part-way open, reported as `partiallyOpen`
+        - label: Flat open, reported as `fullyOpen`
+        - label: The hinge angle tracked the hinge, and stopped at a sensible number
+        - label: The display reported `outer` on the cover screen and `inner` on the main one
+        - label: "Reserved regions appeared where the crease and the camera actually are (iOS; Android reports none, so leave this blank there)"
+        - label: Something was wrong — described below
+
+  - type: textarea
+    id: mismatch
+    attributes:
+      label: What did not match, if anything
+      description: |
+        What you expected, what you saw, and where. A screenshot of the
+        Inspector page is ideal — it shows exactly what the platform handed the
+        package, with no interpretation.
+    validations:
+      required: false
+
+  - type: textarea
+    id: rear
+    attributes:
+      label: Rear display, if you tried it
+      description: |
+        The **Studio** tab of the example app. Three things have never completed a
+        round trip on hardware: starting a session, ending one (`close()`
+        produced no callback on the emulator) and `transferActivity()`. Anything
+        you can say about these is new information.
+    validations:
+      required: false

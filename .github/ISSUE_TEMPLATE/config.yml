@@ -1,0 +1,13 @@
+# Issue forms only. A free-form issue is almost always a device report or a bug
+# with the version and platform missing, which costs a round trip to find out.
+blank_issues_enabled: false
+contact_links:
+  - name: API documentation
+    url: https://pub.dev/documentation/bifold/latest/
+    about: Every public symbol, with the doc comments from the source.
+  - name: What is verified on what hardware
+    url: https://github.com/aayushkedawat/bifold#what-is-verified-where
+    about: Before reporting something as broken, check whether it has ever been run. A blank row is not a promise.
+  - name: Report a security issue
+    url: https://github.com/aayushkedawat/bifold/security/policy
+    about: Privately, not as a public issue.

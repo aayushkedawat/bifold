@@ -417,7 +417,7 @@ emulators only. Three gaps are worth stating rather than leaving to be inferred:
 - **`transferActivity()` has never completed a round trip.**
 
 If a real device disagrees with any of this, please
-[file a report](https://github.com/aayushkedawat/bifold/issues) —
+[file a device report](https://github.com/aayushkedawat/bifold/issues/new?template=device_report.yml) —
 `Bifold.diagnosticReport()` prints what to paste in. It builds a string and
 returns it; **nothing is transmitted**, and it carries no identifier beyond the
 model string. Device reports are how the ❌ rows above change.
@@ -440,6 +440,20 @@ unverified.
 
 Full API documentation is on
 [pub.dev](https://pub.dev/documentation/bifold/latest/).
+
+## Contributing
+
+The most useful contribution is a device report: nothing here has run on
+physical hardware yet, and that is the one gap no amount of emulator work
+closes. A report saying everything matched is worth as much as one saying it
+didn't.
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the rest — how to run what CI runs,
+and the handful of rules the code follows (never invent a platform API, never
+throw because a platform lacks a feature, never let a capability claim more
+than the platform said). The project follows the
+[Contributor Covenant](CODE_OF_CONDUCT.md). Security issues go
+[privately](SECURITY.md), not into the issue tracker.
 
 ## License
 

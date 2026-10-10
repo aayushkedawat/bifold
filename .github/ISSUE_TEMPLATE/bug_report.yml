@@ -1,0 +1,63 @@
+name: Bug report
+description: bifold reported something wrong, laid something out wrong, or threw.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is about a real foldable behaving differently from the docs,
+        a **device report** is the better form — it asks for the right things.
+
+  - type: input
+    id: version
+    attributes:
+      label: bifold version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: flutter
+    attributes:
+      label: flutter doctor -v
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Where it happened
+      description: Device or simulator/emulator, and the OS version. Say which it was — it changes what we can conclude.
+      placeholder: iPhone Duo simulator, iOS 27.1 / Pixel Fold emulator, android-37.2
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        Smallest widget tree that shows it, ideally. A `BifoldScope.fake` that
+        reproduces it is better still — if it fails without a platform at all,
+        the bug is in the Dart core and can be fixed today.
+      render: dart
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Bifold.diagnosticReport()
+      description: Nothing is transmitted by it; it carries no identifier beyond the model string.
+      render: text
+    validations:
+      required: false
