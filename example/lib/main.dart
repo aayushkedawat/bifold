@@ -6,6 +6,7 @@ import 'pages/downstream_page.dart';
 import 'pages/gallery_page.dart';
 import 'pages/inspector_page.dart';
 import 'pages/reader_page.dart';
+import 'pages/reads_page.dart';
 import 'pages/studio_page.dart';
 import 'widgets/hinge_gauge.dart';
 
@@ -105,6 +106,7 @@ class _HomePageState extends State<HomePage> {
     _Demo('Studio', Icons.videocam_outlined, StudioPage()),
     _Demo('Inspector', Icons.science_outlined, InspectorPage()),
     _Demo('Can do', Icons.checklist_outlined, CapabilitiesPage()),
+    _Demo('Reads', Icons.speed_outlined, ReadsPage()),
     _Demo('Apps', Icons.apps_outlined, DownstreamPage()),
   ];
 
@@ -154,11 +156,19 @@ class _LiveStatusBar extends StatelessWidget {
 }
 
 /// The hinge read-out, kept above the tabs so it stays on screen throughout.
+///
+/// Watches the two aspects the gauge draws rather than the whole [FoldInfo].
+/// This is the widget that updates at sensor rate, so it is the one where
+/// that choice pays: a change to the regions or the size class does not
+/// rebuild it. The Reads tab counts the difference.
 class _LiveHingeGauge extends StatelessWidget {
   const _LiveHingeGauge();
 
   @override
-  Widget build(BuildContext context) => HingeGauge(info: Bifold.of(context));
+  Widget build(BuildContext context) => HingeGauge(
+    radians: Bifold.hingeAngleOf(context),
+    pose: Bifold.poseOf(context),
+  );
 }
 
 class _Demo {

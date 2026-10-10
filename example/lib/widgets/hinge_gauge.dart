@@ -13,19 +13,29 @@ import 'package:flutter/material.dart';
 /// The angle is tweened between platform updates so folding looks continuous
 /// rather than stepping, and it degrades to the pose alone on a device that
 /// reports no angle.
+///
+/// Takes the two aspects it draws rather than a whole [FoldInfo], so its
+/// caller can watch exactly those two — see `_LiveHingeGauge` in `main.dart`.
+/// This is the widget that updates at sensor rate, so it is the one where the
+/// difference matters.
 class HingeGauge extends StatelessWidget {
-  /// Creates a hinge read-out for [info].
-  const HingeGauge({required this.info, super.key});
+  /// Creates a hinge read-out.
+  const HingeGauge({required this.radians, required this.pose, super.key});
 
-  /// The fold state to display.
-  final FoldInfo info;
+  /// The hinge angle in radians, or null where there is no valid reading.
+  ///
+  /// Radians is the package's contract; degrees are derived for display.
+  final double? radians;
+
+  /// The pose, which answers even on a device with no angle to report.
+  final FoldPose pose;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final radians = info.hingeAngle;
-    final degrees = info.hingeAngleDegrees;
+    final radians = this.radians;
+    final degrees = radians == null ? null : radians * 180 / math.pi;
     final live = degrees != null;
 
     return Container(
@@ -95,7 +105,7 @@ class HingeGauge extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      info.pose.name,
+                      pose.name,
                       style: theme.textTheme.titleSmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),

@@ -8,6 +8,7 @@ import 'package:bifold_example/main.dart';
 import 'package:bifold_example/pages/gallery_page.dart';
 import 'package:bifold_example/pages/inspector_page.dart';
 import 'package:bifold_example/pages/reader_page.dart';
+import 'package:bifold_example/pages/reads_page.dart';
 import 'package:bifold_example/widgets/hinge_gauge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +36,7 @@ void main() {
       'reader': ReaderPage.new,
       'gallery': GalleryPage.new,
       'inspector': InspectorPage.new,
+      'reads': ReadsPage.new,
     };
 
     for (final entry in pages.entries) {
@@ -142,6 +144,40 @@ void main() {
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(find.byType(NavigationRail), findsNothing);
     });
+
+    // The bar carries one destination per demo page, so adding a page is the
+    // thing most likely to overflow it on the narrowest screen the app runs
+    // on. An overflow is reported as an exception, so this fails rather than
+    // only looking wrong.
+    testWidgets('the bar fits every destination at phone width', (
+      tester,
+    ) async {
+      const Size phone = Size(360, 780);
+      tester.view
+        ..physicalSize = phone
+        ..devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        BifoldScope.fake(
+          info: FoldInfoFakes.closed.copyWith(
+            horizontalSizeClass: FoldSizeClass.compact,
+          ),
+          child: MaterialApp(
+            home: HomePage(
+              overlayEnabled: false,
+              bridgeEnabled: false,
+              onToggleOverlay: () {},
+              onToggleBridge: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('hinge gauge', () {
@@ -153,7 +189,9 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(body: HingeGauge(info: info)),
+          home: Scaffold(
+            body: HingeGauge(radians: info.hingeAngle, pose: info.pose),
+          ),
         ),
       );
       // The angle is tweened, so settle before reading it.
