@@ -13,7 +13,14 @@ media/
 
 # The example app is a full Flutter app with its own iOS and Android projects.
 # pub.dev links to it on GitHub; shipping it would dwarf the package.
-example/
+#
+# Its README is the one exception. `example/README.md` is the first candidate
+# pana looks for when deciding whether a package has an example, which is worth
+# 10 pub points, and pub.dev renders it as the Example tab. Note the pattern:
+# excluding `example/` itself would stop pub descending into the directory, so
+# the negation below could never re-include anything.
+example/*
+!example/README.md
 
 # Local verification notes and the Phase 0 research record. Useful in the
 # repository, not to a consumer.
