@@ -26,7 +26,7 @@ that ships everywhere.
 
 ```yaml
 dependencies:
-  bifold: ^1.0.1
+  bifold: ^1.0.2
 ```
 
 Wrap your app once, near the root. There is no other setup — no `Info.plist`
@@ -341,6 +341,10 @@ platform.emitError(StateError('the platform fell over'));
 | Android fold reporting | a device Jetpack WindowManager reports a fold for |
 | Android hinge angle | API 30+, with a hinge angle sensor |
 
+Those floors are what `pubspec.yaml` declares, and only **Flutter 3.44.4** has
+actually been exercised — that is the version CI pins. The lower bound is
+untested, and the `example/` app needs Dart 3.12.2 or newer.
+
 `androidx.window` is pinned to the version Flutter's own Android embedding
 already resolves, so adding `bifold` cannot pull your app into a conflict with
 the engine. No permissions are requested.
@@ -383,14 +387,29 @@ than guessing. Branch on `pose` and size classes instead.
 
 ## What is verified where
 
-A ✅ means someone ran it and recorded the result in
-[`doc/manual-tests.md`](doc/manual-tests.md). A blank means nobody has checked it
-on this build, which is not the same as it being broken.
+A ✅ means someone ran it and the result is recorded, with the values read
+back, somewhere in this repository:
+
+* **Simulator and emulator observations** are dated and name the runtime. The
+  iOS ones are in [`doc/manual-tests.md`](doc/manual-tests.md); the Android
+  ones are in [`API_NOTES.md`](API_NOTES.md) under *Observed emulator
+  behaviour*, with the AVD and the values read back. `doc/manual-tests.md` also
+  holds the Android procedure and the exact `adb` commands, but its Android
+  result column is still blank: that list has not been walked start to finish as
+  a list, so no cell below points at its ticks.
+* **Native symbols** are verified in [`API_NOTES.md`](API_NOTES.md) against the
+  SDK headers and artifacts, with the source and the date.
+* **Automated tests and the capability invariants** are the CI workflow, which
+  runs the Dart suite, the Kotlin `:bifold:test` suite and the `RunnerTests`
+  XCTest suite on every push.
+
+A blank means nobody has checked it on this build, which is not the same as it
+being broken.
 
 | | iOS | Android |
 |---|---|---|
 | Native symbols checked against SDK/artifacts | ✅ | ✅ |
-| Native code covered by automated tests | ✅ 6 Swift | ✅ 13 Kotlin |
+| Native code covered by automated tests | ✅ 7 Swift | ✅ 27 Kotlin |
 | Fold state on a simulator / emulator | ✅ | ✅ |
 | Open, half-open and closed | ✅ | ✅ |
 | Hinge angle | ✅ | ✅ (injected) |
@@ -401,6 +420,11 @@ on this build, which is not the same as it being broken.
 | Rear display: ending a session | | ⚠️ no callback on the emulator |
 | Rear display: transfer | n/a — no iOS equivalent | ⚠️ unverified |
 | Physical hardware | ❌ | ❌ |
+
+The Swift and Kotlin counts are the test cases themselves — the `RunnerTests`
+XCTest suite and the Gradle `:bifold:test` task — not a promise about
+coverage. The Android emulator observations come from `pixel_9_pro_fold` and a
+flip-style AVD.
 
 **Nothing in this package has run on a physical foldable, on either platform.**
 The iPhone Duo ships on 23 October 2026; the Android side has been exercised on

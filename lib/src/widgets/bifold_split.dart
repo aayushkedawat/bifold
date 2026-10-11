@@ -59,7 +59,8 @@ enum BifoldSplitFallback {
 /// When the device is part-way open and the platform reports an active
 /// division across this widget, the panes are placed on either side of it,
 /// clear of the crease and its margins. Otherwise the panes fall back to
-/// [fallback], which stacks them by default.
+/// [fallback], which is `adaptive` by default: side by side where there is
+/// room, stacked where there is not.
 ///
 /// ```dart
 /// BifoldSplit(

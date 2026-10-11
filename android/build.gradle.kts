@@ -1,5 +1,5 @@
 group = "dev.bifold.bifold"
-version = "1.0.0"
+version = "1.0.2"
 
 // Declared once and surfaced through BuildConfig, so the diagnostic report
 // cannot drift from what is actually on the classpath.

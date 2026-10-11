@@ -627,6 +627,50 @@ it for an engine hosted outside an activity. `RearDisplay` now calls it after
 attaching the `FlutterView`; without it the framework's `AppLifecycleState`
 stays at whatever the engine defaulted to.
 
+### `Application.ActivityLifecycleCallbacks` and `Activity.isChangingConfigurations()`
+
+`Application.registerActivityLifecycleCallbacks(ActivityLifecycleCallbacks)`
+and `unregisterActivityLifecycleCallbacks` are in `android.app.Application`
+(verified against `sources/android-36.1/android/app/Application.java:310,316`,
+2026-10-11; the interface is at `:73`, `onActivityStarted` at `:106`,
+`onActivityResumed` at `:125`, `onActivityPaused` at `:144` and
+`onActivityStopped` at `:163`). `Activity.isChangingConfigurations()` is at
+`android/app/Activity.java:7468`. No permission and no dependency: the
+callbacks have existed since API 14, which is why the hinge gate (M1) could be
+built without pulling in `androidx.lifecycle` — the plugin module has no
+lifecycle artifact on its classpath, and adding one would have been a new
+dependency the ground rules ask about first.
+
+The plugin registers once per engine, off `binding.applicationContext`, and the
+hinge sensor follows a Dart listener *and* whether an activity of the app is on
+screen. "On screen" is taken from `onActivityStarted` / `onActivityStopped`
+rather than from resume and pause. `Activity.onResume` is documented as "a hint
+for your activity to start interacting with the user ... ready to receive
+input", and its javadoc names the counterexample: an activity "may be relaunched
+to `onPause` due to configuration changes and the activity was visible, but
+wasn't the top-most activity of an activity task"
+(`Activity.java:2231-2238`). Before API 29 only one activity in the system could
+be resumed at a time (`Activity.java:2242-2244`), so a visible app in split
+screen, under a translucent activity or in picture-in-picture is paused — and
+gating on pause would release the sensor, clearing the hinge angle with it,
+while the app was on screen and foldable.
+
+`isChangingConfigurations` is load bearing on the stop path: a fold is a
+configuration change, so the outgoing activity passes through
+`onActivityStopped` (after pause, before destroy), and without the guard the
+gate would read that teardown as a backgrounding and clear the hinge angle
+mid-fold — the dropout `BifoldPlugin` already documents as fixed once.
+`Activity.onStop` consults the same flag for its own bookkeeping
+(`Activity.java:2928`). Because an app can have more than one activity on screen
+and Android delivers the newcomer's `onActivityStarted` before the outgoing
+activity's `onActivityStopped`, the gate counts started activities instead of
+latching a boolean; a skipped stop is remembered so the replacement activity's
+start is not counted and the total cannot drift upward on each fold. When the
+context is not an `Application` the gate fails open.
+
+The decision rule is unit-tested on the JVM (`ForegroundGateTest`); the
+callbacks themselves have only been exercised on an emulator, not hardware.
+
 ### `@ExperimentalWindowApi`
 
 Every `androidx.window.area` symbol carries it

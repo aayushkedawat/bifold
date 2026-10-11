@@ -231,8 +231,12 @@ adb -s emulator-5556 exec-out screencap -d <display-id> -p > shot.png
 ## Checks
 
 Record a result in the third column every time this list is walked. An empty
-cell means nobody has checked it on this build — the README's verification
-matrix is only allowed to tick what is filled in here.
+cell means nobody has walked this list as a list; it does not mean nothing was
+checked. The individual observations the README's matrix ticks are recorded in
+[`API_NOTES.md`](../API_NOTES.md) under *Observed emulator behaviour*, with the
+AVD and the values read back — the posture table, the hinge sweep, and the
+rear-display pass. This table is for a full pass, so a walker can see what the
+previous one found.
 
 | # | Step | Expected | Result |
 |---|---|---|---|
@@ -245,10 +249,15 @@ matrix is only allowed to tick what is filled in here.
 | A7 | Multi-window / split screen | size classes follow the window, not the display | |
 | A8 | Run on a non-foldable AVD | `not foldable`, no regions, **nothing logged to the console** | |
 | A9 | Throughout | no exception of any kind in `flutter run` output | |
+| A10 | Open the hinge gauge, background the app, then return | the reading goes `null` while backgrounded — the sensor is released, which you can corroborate by looking for the app's package in `adb shell dumpsys sensorservice` — and resumes on return, still tracking the angle | |
 
 A3 is the one worth repeating after any change to capability detection: it is
 the case observation cannot cover, and it passes only because `isFoldable`
 comes from a static device feature.
+
+A10 is the one worth repeating after any change to the lifecycle gate in
+`ForegroundGate`. Its failure is silent — a released sensor and an idle one both
+read `null` — so check the return leg, not just the background leg.
 
 ## Not covered here
 
@@ -260,6 +269,13 @@ comes from a static device feature.
   checks below; `close()` produced no `onSessionEnded` callback on the
   `android-37.2` emulator and the area kept reporting `active`, so the end of
   a session has never been seen to work.
+* The sensor gate's fail-open residue. If a fold's skipped stop is never
+  answered by its replacement's start — the user folds, then leaves for Home
+  before the relaunch starts — the recreation credit and the count both stay
+  high, so the hinge keeps running until the next real backgrounding. It is the
+  direction `ForegroundGate` deliberately errs in, and it heals, but nothing
+  outside the process can see the sensor, so it is recorded here rather than
+  asserted by a test.
 
 ## Rear display (Android)
 

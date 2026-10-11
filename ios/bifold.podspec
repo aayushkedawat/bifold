@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'bifold'
-  s.version          = '1.0.0'
+  s.version          = '1.0.2'
   s.summary          = 'Fold awareness for iPhone Duo and Android foldables.'
   s.description      = <<-DESC
 Hinge angle, pose, fold regions, device capabilities, rear display and

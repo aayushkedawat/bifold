@@ -91,6 +91,30 @@ void main() {
       );
     });
 
+    test('the payload a native side sends before any report is unresolved', () {
+      // What the rear-display writer emits before the first window-area
+      // callback: both operations unsupported, isResolved false. Those
+      // statuses are indistinguishable on their own from a device that cannot
+      // present at all, which is why the key exists -- and why a native side
+      // that failed to send it left the availability state permanently
+      // unresolved on both platforms.
+      final before = RearDisplayAvailability.fromMap(const <Object?, Object?>{
+        'presentation': 'unsupported',
+        'transfer': 'unsupported',
+        'isResolved': false,
+      });
+      expect(before, RearDisplayAvailability.unresolved);
+
+      // And once a report has arrived with no window areas at all: the same
+      // two statuses, now settled.
+      final after = RearDisplayAvailability.fromMap(const <Object?, Object?>{
+        'presentation': 'unsupported',
+        'transfer': 'unsupported',
+        'isResolved': true,
+      });
+      expect(after, RearDisplayAvailability.none);
+    });
+
     test('equality and hashCode cover every field', () {
       // The only assertion on == used to be against an identical instance,
       // which short-circuits before comparing anything.

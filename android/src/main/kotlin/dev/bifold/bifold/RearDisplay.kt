@@ -52,36 +52,36 @@ internal class RearDisplay(
   private var engine: FlutterEngine? = null
   private var flutterView: FlutterView? = null
 
+  /**
+   * The availability answer and its resolution rule, extracted so the rule is
+   * unit-testable on the JVM — this class needs a `WindowAreaController`.
+   */
+  private val reporter = RearDisplayStatus()
+
   fun observe(infos: List<WindowAreaInfo>) {
     areas = infos
+    // Only the first area is consulted, as before. androidx hands over fresh
+    // `WindowAreaInfo` objects on every emission, so the capability status is
+    // read out here rather than the objects being held for comparison.
+    val info = infos.firstOrNull()
+    reporter.observe(
+      info?.getCapability(PRESENT)?.status,
+      info?.getCapability(TRANSFER)?.status,
+    )
     onStatusChanged()
   }
 
   /**
-   * The current status of each operation.
+   * The current status of each operation, plus whether it is resolved.
    *
    * `active` is reported from the session held here rather than from the
    * capability status, because a session this process started is something
    * this process knows for certain.
    */
-  fun status(): Map<String, String> = mapOf(
-    "presentation" to statusOf(PRESENT, presentationSession != null),
-    "transfer" to statusOf(TRANSFER, transferSession != null),
+  fun status(): Map<String, Any> = reporter.status(
+    presentationSessionActive = presentationSession != null,
+    transferSessionActive = transferSession != null,
   )
-
-  private fun statusOf(
-    operation: WindowAreaCapability.Operation,
-    sessionActive: Boolean,
-  ): String {
-    if (sessionActive) return "active"
-    val info = areas.firstOrNull() ?: return "unsupported"
-    return when (info.getCapability(operation).status) {
-      WindowAreaCapability.Status.WINDOW_AREA_STATUS_AVAILABLE -> "available"
-      WindowAreaCapability.Status.WINDOW_AREA_STATUS_UNAVAILABLE -> "unavailable"
-      WindowAreaCapability.Status.WINDOW_AREA_STATUS_ACTIVE -> "active"
-      else -> "unsupported"
-    }
-  }
 
   /**
    * Shows [entrypoint]'s content on the rear display.

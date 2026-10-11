@@ -1,7 +1,9 @@
 package dev.bifold.bifold
 
 import android.app.Activity
+import android.app.Application
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
@@ -34,6 +36,13 @@ import java.util.concurrent.Executor
  * fold and no hinge sensor, this still answers, with the same "no fold"
  * payload a non-foldable device produces.
  */
+// This class reads `WindowAreaController` and `WindowAreaInfo` through
+// `RearDisplay`, and every `androidx.window.area` symbol is
+// @ExperimentalWindowApi -- at RequiresOptIn.Level.WARNING, so the whole
+// rear-display feature compiled without anything here acknowledging that it
+// rests on an API that may change without a major version. `API_NOTES.md`
+// claims this annotation is present; until now it was not.
+@OptIn(ExperimentalWindowApi::class)
 class BifoldPlugin :
   FlutterPlugin,
   ActivityAware,
@@ -96,6 +105,36 @@ class BifoldPlugin :
     }
   }
 
+  /**
+   * Whether the app is on screen, so the hinge sensor can be released behind it.
+   *
+   * Registering the callbacks is not a dependency: `Application` has taken them
+   * since API 14, and this plugin already reaches the application context in
+   * [onAttachedToEngine]. See [ForegroundGate] for why a configuration change
+   * must not read as a backgrounding.
+   */
+  private val foregroundGate = ForegroundGate()
+
+  private val lifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+    // Started and stopped, not resumed and paused: resume tracks focus, and a
+    // visible activity is routinely not the focused one. See [ForegroundGate].
+    override fun onActivityStarted(activity: Activity) {
+      foregroundGate.started()
+      updateHinge()
+    }
+
+    override fun onActivityStopped(activity: Activity) {
+      foregroundGate.stopped(changingConfigurations = activity.isChangingConfigurations)
+      updateHinge()
+    }
+
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+    override fun onActivityResumed(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) = Unit
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    override fun onActivityDestroyed(activity: Activity) = Unit
+  }
+
   private val layoutListener = Consumer<WindowLayoutInfo> { info ->
     reader?.update(info)
     capabilities?.observeFolds(
@@ -110,6 +149,21 @@ class BifoldPlugin :
     rearDisplay?.observe(areas)
     emit()
   }
+
+  /**
+   * Builds the rear-display holder.
+   *
+   * A factory rather than one construction site, because [bind] has to be able
+   * to rebuild it: a real detach ends the session and drops the instance
+   * ([onDetachedFromActivity]) while a configuration-change detach must not,
+   * and only one of those leaves the next attach with something to reuse.
+   */
+  private fun newRearDisplay(): RearDisplay =
+    RearDisplay(
+      WindowAreaController.getOrCreate(),
+      mainExecutor,
+      ::emitRearDisplay,
+    )
 
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     reader = FoldReader(binding.applicationContext)
@@ -127,11 +181,13 @@ class BifoldPlugin :
     }
     // A rear-display session outlives the activity, and RearDisplay takes the
     // activity per call rather than holding one, so this is engine-scoped too.
-    rearDisplay = RearDisplay(
-      WindowAreaController.getOrCreate(),
-      mainExecutor,
-      ::emitRearDisplay,
-    )
+    rearDisplay = newRearDisplay()
+    // Registered for the whole engine lifetime rather than per activity: the
+    // gate is about the *app* being on screen, not about which activity is
+    // current. When the context is not an Application the gate simply fails
+    // open, which is what it did before the gate existed.
+    (binding.applicationContext as? Application)
+      ?.registerActivityLifecycleCallbacks(lifecycleCallbacks)
     methodChannel = MethodChannel(binding.binaryMessenger, "dev.bifold/methods")
     methodChannel.setMethodCallHandler(this)
     eventChannel = EventChannel(binding.binaryMessenger, "dev.bifold/fold_info")
@@ -157,12 +213,17 @@ class BifoldPlugin :
     // decor-view layout listener attached and the window-area coroutine job
     // alive, which with two engines on one activity kept the plugin -- and
     // through it the Activity -- reachable from a system service.
+    // Cleared before stopListening, not after: the hinge gate reads the sink,
+    // and on the way out it has to see no listeners rather than start the
+    // sensor one last time and then drop the reader that would stop it.
+    sink = null
+    rearDisplaySink = null
     stopListening()
+    (binding.applicationContext as? Application)
+      ?.unregisterActivityLifecycleCallbacks(lifecycleCallbacks)
     methodChannel.setMethodCallHandler(null)
     eventChannel.setStreamHandler(null)
     rearDisplayChannel.setStreamHandler(null)
-    sink = null
-    rearDisplaySink = null
     rearDisplay?.end()
     rearDisplay = null
     hinge = null
@@ -220,6 +281,12 @@ class BifoldPlugin :
     reader?.attach(activity)
     tracker = WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(activity))
     areaController = WindowAreaControllerCallbackAdapter(WindowAreaController.getOrCreate())
+    // Null-guarded, not unconditional: this runs for a configuration-change
+    // reattach as well, and replacing an instance that was never ended would
+    // drop a session mid-transfer. A *real* detach ends and nulls it
+    // (onDetachedFromActivity), so without this the next attach left it null
+    // and rear display never answered again for the life of the engine.
+    rearDisplay = rearDisplay ?: newRearDisplay()
     if (sink != null) {
       startObserving()
     }
@@ -248,8 +315,8 @@ class BifoldPlugin :
    * Starts the observation that needs an activity.
    *
    * The hinge sensor is deliberately not started here: it is engine-scoped and
-   * follows whether anyone is listening, not which activity is current. See
-   * [startListening].
+   * follows whether anyone is listening and the app is in front, neither of
+   * which is a property of the current activity. See [updateHinge].
    */
   private fun startObserving() {
     val activity = activity ?: return
@@ -275,13 +342,32 @@ class BifoldPlugin :
   /** Begins everything that follows a Dart listener rather than an activity. */
   private fun startListening() {
     startObserving()
-    hinge?.start()
+    updateHinge()
   }
 
   /** Ends it. Clearing the angle here is correct: nothing is reading it. */
   private fun stopListening() {
     stopObserving()
-    hinge?.stop()
+    updateHinge()
+  }
+
+  /**
+   * Starts or stops the hinge sensor to match whether anyone is listening *and*
+   * the app is on screen.
+   *
+   * The sensor used to follow the listener alone, so an app that never
+   * cancelled its subscription held `TYPE_HINGE_ANGLE` registered for its whole
+   * background lifetime. [HingeReader.start] and [HingeReader.stop] are
+   * idempotent, so calling this on every lifecycle transition is free when the
+   * answer has not changed — which is what lets a fold's pause-and-recreate
+   * bounce through here without touching the sensor.
+   */
+  private fun updateHinge() {
+    if (sink != null && foregroundGate.foreground) {
+      hinge?.start()
+    } else {
+      hinge?.stop()
+    }
   }
 
   // --- One-shot queries ---------------------------------------------------
@@ -359,8 +445,20 @@ class BifoldPlugin :
     }
   }
 
-  private fun unsupportedRearDisplay(): Map<String, String> =
-    mapOf("presentation" to "unsupported", "transfer" to "unsupported")
+  /**
+   * The answer when there is no [RearDisplay] to ask.
+   *
+   * Deliberately unresolved, not the settled `unsupported` a device with no
+   * window-area support produces. This fires only while the engine holds no
+   * area controller at all — a teardown state, not a fact about the device —
+   * and Dart reads `isResolved` with `== true`, so leaving the key out would
+   * have left the state unresolved anyway, silently rather than by design.
+   */
+  private fun unsupportedRearDisplay(): Map<String, Any> =
+    RearDisplayStatus().status(
+      presentationSessionActive = false,
+      transferSessionActive = false,
+    )
 
   private fun emitRearDisplay() {
     rearDisplaySink?.success(rearDisplay?.status() ?: unsupportedRearDisplay())
@@ -393,8 +491,10 @@ class BifoldPlugin :
   }
 
   override fun onCancel(arguments: Any?) {
-    stopListening()
+    // Cleared before stopListening, not after: the hinge gate reads it, and a
+    // still-set sink here would start the sensor back up on the way out.
     sink = null
+    stopListening()
     lastPayload = null
     lastCapabilities = null
   }

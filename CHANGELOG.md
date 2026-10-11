@@ -1,3 +1,164 @@
+## 1.0.2
+
+Fixes for defects on the boundary between Dart and the two native writers —
+the layer no test in this repository could see, because each side was
+self-consistent and the failure lived in the contract between them. Two of them
+contradicted the package's own documented semantics. No published API changes,
+and no deprecation is warranted: the fixes move behaviour towards what the
+README and the doc comments already promised.
+
+**Fixed**
+
+* **iOS now advances `capabilityRevision`.** The plugin stamped every fold
+  payload with a constant zero, so Dart queried capabilities exactly once — at
+  whatever the first payload happened to say. The gating that exists to avoid
+  re-querying at sensor rate then suppressed the *second* query, which is the
+  one that would have carried a real answer. A foldable iPhone that had not yet
+  moved therefore sat with `statusOf(FoldFeature.fold) == unknown` and
+  `hasFold` false for the life of the process, and nothing could ever promote
+  it: exactly the conflation the tri-state model exists to prevent, since a
+  consumer reading `hasFold` cannot tell "not yet known" from "no fold". A new
+  `CapabilityRevisionTracker` derives the revision from the only two
+  `CapabilityReader` inputs that can change within a process — whether a hinge
+  and whether a division have been seen — and bumps it only when one of them
+  does. The revision is stamped *after* the reader's own observations rather than
+  passed in ahead of them: `readRegions` is what discovers a division, so
+  computing it first reported a division found on the last event of a gesture
+  under the previous revision, which is a change Dart's gating then suppresses —
+  leaving `hasSeparatingFold` unknown until the device moves again. A fold in
+  progress still costs zero round trips.
+
+* **Both native sides now settle the rear-display payload with `isResolved`.**
+  Neither writer sent the key, and Dart reads it with `== true`, so the settled
+  availability state was unreachable on both platforms: `hasRearDisplay` and the
+  per-mode statuses worked, but `RearDisplayAvailability.none` could never be
+  produced, and a consumer gating its first frame on resolution waited forever.
+  iOS is authoritative — the SDK either exposes the capture-accessory API or it
+  does not — so it reports `true` on every path. Android reports `false` until
+  the first window-area callback and `true` after, which is the same
+  "not yet reported versus reported nothing" distinction `CapabilityReader`
+  already draws. The rule moved into `RearDisplayStatus`, a pure type, so it is
+  unit-tested on the JVM rather than only on an emulator.
+
+* **Android rebuilds the rear-display holder when it has to.** `bind()` recreated
+  the readers and the window-area controller but not `RearDisplay`, while a real
+  detach ends the session and drops the instance. After the first genuine detach
+  and reattach, `rearDisplay` was therefore null for the life of the engine:
+  every status read fell through to the unresolved fallback, and neither
+  `present()` nor `transferActivity()` could run again. The rebuild is
+  null-guarded rather than unconditional, because `bind()` also runs for a
+  configuration-change reattach that deliberately leaves a session alive —
+  replacing that instance would have dropped a live transfer.
+
+* **The Android hinge sensor is released when the app is not on screen.** It
+  followed whether a Dart listener existed, not whether anyone could be reading
+  it, so an app that held its subscription kept `TYPE_HINGE_ANGLE` registered for
+  its whole background lifetime. It now follows a listener *and* whether an
+  activity of the app is on screen, tracked through
+  `Application.ActivityLifecycleCallbacks` — no new dependency, which is why this
+  is a patch and not a design note. On screen is
+  `onActivityStarted` / `onActivityStopped` rather than resume and pause, because
+  resume tracks focus: split screen before API 29, a translucent activity on top
+  and picture-in-picture all leave a visible app paused, and gating on pause
+  would release the sensor — `HingeReader.stop()` clearing the angle with it —
+  while the app was on screen and foldable. A fold stops and recreates the
+  activity, so a stop flagged `isChangingConfigurations` is skipped and its
+  replacement's start is not counted: a configuration change is not a
+  backgrounding, and a count that drifted on every fold would never fall back on
+  the next real one. Acting on that stop would have reintroduced the mid-fold
+  dropout `BifoldPlugin` already documents as fixed once. Counting is only safe
+  because a start sets the flag unconditionally — the skipped count is a
+  correction to the total, never a reason to doubt the callback, since nothing
+  but an activity coming on screen can produce it. The gate fails open
+  throughout: it starts set, and only a real stop clears it.
+
+* **The deprecated iOS capture-accessory stream speaks below 27.1.**
+  `setAccessorySink` emitted only inside its `#available(iOS 27.1, *)` branch, so
+  on an older OS the stream said nothing on listen at all —
+  `BifoldCaptureAccessory.availability` documents that it emits on listen so a UI
+  can bind unconditionally. There is no accessory to report there, so the value
+  is a plain `false` rather than silence.
+
+* **Two unguarded dynamic sends on iOS are now guarded.** `ArrangementOracle`
+  called `-setAxes:` through `objc_msgSend` without a `responds(to:)` check, and
+  `NativeApiProbe` called `-reservedRegionsOfKind:options:` the same way, while
+  its sibling `describeLiveRegions` guarded it. An OS that exposes the class but
+  not the method raises `doesNotRecognizeSelector`, which *aborts* rather than
+  throwing — from the diagnostic path, which documents itself as unable to crash
+  the app. Both now guard, matching the calls around them.
+
+**Changed**
+
+* **`@OptIn(ExperimentalWindowApi::class)` is now applied on Android.** The
+  import was there and every `androidx.window.area` symbol is
+  `@ExperimentalWindowApi` at `RequiresOptIn.Level.WARNING`, so the whole
+  rear-display feature compiled without anything acknowledging that it rests on
+  an API that may change without a major version — and `API_NOTES.md` already
+  claimed the annotation was present. Nothing about behaviour changes; the
+  opt-in now matches the documentation.
+
+**Tests**
+
+* New Kotlin JVM tests for the two extracted rules — `RearDisplayStatusTest`
+  (unresolved before any report, settled after; each status spelling; a session
+  outranking the report; a later report replacing an earlier one, including a
+  report naming no area) and `ForegroundGateTest` (a backgrounding clears the
+  flag, a configuration change does not, the activity reborn after one does not
+  drift the count, a second activity on screen keeps it set, and a start
+  answering a skipped stop restores it even when the count said otherwise).
+* New Swift `testCapabilityRevisionTracksOnlyRealChanges`, driving the extracted
+  tracker directly because `RunnerTests` builds a plugin with no registrar and
+  cannot reach a real capability change.
+* New Dart contract tests: the rear-display payload a native side sends before
+  any report decodes to `unresolved` and one that carries `isResolved: true`
+  decodes to `none`; and a scan asserting both platforms' rear-display writers
+  still name the key Dart reads strictly.
+
+**Docs**
+
+* The README's verification matrix legend now says where each kind of ✅ is
+  recorded — simulator and emulator observations in `doc/manual-tests.md` (iOS)
+  and `API_NOTES.md` under *Observed emulator behaviour* (Android, with the AVD
+  and the values read back), native symbols in `API_NOTES.md`, and automated
+  tests in the CI workflow. The Android rows were never unbacked, but the old
+  legend pointed every column at `doc/manual-tests.md`, whose Android result
+  column is still blank — which read as a claim nobody had made. Test counts
+  corrected to 7 Swift and 27 Kotlin, and the requirements table now says
+  plainly that only Flutter 3.44.4 has actually been exercised.
+* `SECURITY.md` says which versions are supported — 1.0.2, and 1.0.1 / 1.0.0 /
+  0.2.0 / 0.1.0 not. It no longer implies that table is exactly what pub.dev has
+  published (it is not, while 1.0.2 is still being prepared), and it no longer
+  sends 1.0.1 users to the `CHANGELOG` "for the migration" when this release
+  changes no published API. The `CHANGELOG`'s entries for 0.3.0 and 0.1.1 are
+  still noted as releases that never happened.
+* `API_NOTES.md` now records the two Android platform symbols the foreground
+  gate introduced — `Application.ActivityLifecycleCallbacks` and
+  `Activity.isChangingConfigurations()` — checked against the local SDK sources
+  with line numbers, together with why the gate reads
+  `onActivityStarted` / `onActivityStopped` rather than resume and pause, and
+  notes that neither needs a permission, which is what let the gate avoid a new
+  dependency.
+* The 1.0.0 entry's claim that *every* `FoldInfoFakes` value reports
+  `isResolved: true` was wrong: `FoldInfoFakes.unsupported` deliberately models a
+  platform that has not answered and stays unresolved.
+* `Bifold.debugDescribeNativeApi()`'s deprecation said it is removed in 0.4.0;
+  the code and the 0.2.0 entry both say 2.0.0. The changelog now agrees.
+* `BifoldSplit`'s doc comment said the default fallback "stacks them"; the
+  default is `adaptive`, as the enum it points at says.
+
+**Platforms**
+
+* iOS and Android. Nothing here has run on physical hardware on either platform.
+  The two extracted rules — the capability revision tracker and the foreground
+  gate — are unit-tested, in XCTest and on the JVM respectively. The changes
+  around them are plugin wiring that nothing automated covers: rebuilding the
+  rear-display holder on reattach, clearing the event sink on cancel, and the
+  hinge gate's lifecycle callbacks all need a running engine, so they are
+  source-verified and depend on an emulator or simulator run to exercise. The
+  README's verification matrix records what has actually been observed there,
+  and it still carries rows marked unverified — rear-display transfer, and
+  ending a session on the emulator among them.
+
 ## 1.0.1
 
 Packaging and project documentation. No change to any published API, and no
@@ -144,9 +305,12 @@ below were each reproduced by a test before being fixed; those tests ship.
   `FoldInfoFakes.silentHinge` (a sensor present but never delivering), and
   size classes on the inner-display fakes so `FoldInfo.isRegular`, and
   therefore `BifoldScaffold`'s rail, can be tested at all. Every
-  `FoldInfoFakes` value now reports `isResolved: true`, because each models a
-  platform answer; a consumer gating on resolution could not previously be
-  driven out of its pending state by any fake the package shipped.
+  `FoldInfoFakes` value that models a platform which *answered* reports
+  `isResolved: true`, because a consumer gating on resolution could not
+  previously be driven out of its pending state by any fake the package
+  shipped. The exception is `FoldInfoFakes.unsupported`, which deliberately
+  stands in for a platform that has not answered at all and so keeps
+  `isResolved: false`.
 
 **Fixed**
 
@@ -486,7 +650,7 @@ doing; `BifoldCapabilities` says what it can ever do.
   value against `FoldInfo.unsupported` will see a difference.
 * `Bifold.debugDescribeNativeApi()` is deprecated in favour of
   `Bifold.diagnosticReport()`, which includes it alongside capabilities and
-  current state. It still works, and is removed in 0.4.0.
+  current state. It still works, and is removed in 2.0.0.
 
 **Known limitations**
 

@@ -318,6 +318,31 @@ void main() {
             reason: 'the Android fold payload omits $key');
       }
     });
+
+    test('both platforms settle the rear-display payload', () {
+      // Written by different code than the fold payload, so the scan above
+      // proves nothing about it. Dart reads isResolved with `== true` and has
+      // no "unknown" status spelling, so a platform that omits this key can
+      // never report a settled availability and reports "unsupported" forever
+      // -- a failure with no symptom in Dart alone.
+      //
+      // iOS writes the payload inside its plugin, where `"isResolved": true`
+      // (the quoted-key form, unlike the shorthand used for fold payloads)
+      // appears only in `rearDisplayStatus`. Android writes it in
+      // `RearDisplayStatus`, a file that exists for nothing else.
+      final ios = File('ios/bifold/Sources/bifold/BifoldPlugin.swift')
+          .readAsStringSync();
+      final android =
+          File('android/src/main/kotlin/dev/bifold/bifold/RearDisplayStatus.kt')
+              .readAsStringSync();
+
+      expect(ios, contains('func rearDisplayStatus'),
+          reason: 'the iOS rear-display payload was renamed or removed');
+      expect(ios, contains('"isResolved": true'),
+          reason: 'the iOS rear-display payload omits isResolved');
+      expect(android, contains('"isResolved"'),
+          reason: 'the Android rear-display payload omits isResolved');
+    });
   });
 
   group('getCapabilities', () {

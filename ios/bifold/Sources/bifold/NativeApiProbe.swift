@@ -261,12 +261,16 @@ enum NativeApiProbe {
         let kind = (kindClass as AnyObject).perform(selector)?
           .takeUnretainedValue()
       else { continue }
-      let result = call(
-        view,
-        NSSelectorFromString("reservedRegionsOfKind:options:"),
-        kind,
-        1
-      ) as? [Any]
+      // Guarded, matching describeLiveRegions. Calling the options overload
+      // unconditionally on an OS that has the region kinds but not the overload
+      // would raise doesNotRecognizeSelector and abort -- from a diagnostic,
+      // which this class documents as unable to crash the app.
+      let optionsSelector = NSSelectorFromString("reservedRegionsOfKind:options:")
+      guard view.responds(to: optionsSelector) else {
+        parts.append("\(name.prefix(3))=n/a")
+        continue
+      }
+      let result = call(view, optionsSelector, kind, 1) as? [Any]
       parts.append("\(name.prefix(3))=\(result?.count ?? -1)")
       if let first = result?.first {
         parts.append("first=\(first)")

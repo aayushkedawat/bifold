@@ -155,11 +155,17 @@ final class ArrangementOracle {
       return
     }
 
-    // -setAxes: is v24@0:8Q16 — an NSUInteger scalar.
-    if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend") {
+    // -setAxes: is v24@0:8Q16 — an NSUInteger scalar. Guarded with responds(to:)
+    // like every other dynamic send here: an OS that exposes UISplitArrangement
+    // without the setter would raise doesNotRecognizeSelector, which aborts the
+    // process rather than returning nil.
+    let axesSelector = NSSelectorFromString("setAxes:")
+    if arrangement.responds(to: axesSelector),
+      let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "objc_msgSend")
+    {
       typealias SetAxes = @convention(c) (AnyObject, Selector, UInt) -> Void
       unsafeBitCast(symbol, to: SetAxes.self)(
-        arrangement, NSSelectorFromString("setAxes:"), axis.rawValue
+        arrangement, axesSelector, axis.rawValue
       )
     }
 

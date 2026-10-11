@@ -27,6 +27,15 @@ private let payloadVersion = 1
 
 public class BifoldPlugin: NSObject, FlutterPlugin {
   private let foldReader: FoldReader
+
+  /// Bumps the `capabilityRevision` Dart gates its capability re-query on.
+  ///
+  /// Without it iOS reported a constant revision, so Dart queried capabilities
+  /// once and a foldable that had not moved yet stayed `unknown` for the life
+  /// of the process -- the "not yet known" state never giving way to a real
+  /// answer. See [CapabilityRevisionTracker].
+  private let capabilityRevisions = CapabilityRevisionTracker()
+
   private var eventSink: FlutterEventSink?
   private var rearDisplaySink: FlutterEventSink?
   private var observation: FoldObservation?
@@ -159,8 +168,16 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
 
   fileprivate func setAccessorySink(_ sink: FlutterEventSink?) {
     accessorySink = sink
-    if #available(iOS 27.1, *), let sink {
+    guard let sink else { return }
+    // Emit on listen even below 27.1. The old form emitted only inside the
+    // availability check, so on an older OS the deprecated stream said nothing
+    // at all -- and `BifoldCaptureAccessory.availability` documents that it
+    // emits on listen and stays open so a UI can bind unconditionally. There is
+    // no accessory to report there, so the value is a plain false.
+    if #available(iOS 27.1, *) {
       sink(CaptureAccessory.shared?.isAvailable ?? false)
+    } else {
+      sink(false)
     }
   }
 
@@ -176,7 +193,8 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
         result(
           FoldReader.unsupportedPayload(
             version: payloadVersion,
-            isResolved: false
+            isResolved: false,
+            capabilityRevision: capabilityRevision()
           )
         )
         return
@@ -186,7 +204,13 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
       // The first such read still predates the hinge's initial update, which
       // is why the stream is the documented way to track fold state.
       foldReader.hinge.attach(to: view, onChange: {})
-      result(foldReader.read(from: view, version: payloadVersion))
+      result(
+        foldReader.read(
+          from: view,
+          version: payloadVersion,
+          capabilityRevision: capabilityRevision()
+        )
+      )
     case "getCapabilities":
       result(
         CapabilityReader.payload(
@@ -356,9 +380,13 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
   /// Only presentation exists on this platform: there is no way to move the
   /// whole app to the outer display, so transfer is permanently unsupported
   /// rather than merely unavailable.
-  private func rearDisplayStatus() -> [String: String] {
+  private func rearDisplayStatus() -> [String: Any] {
     guard #available(iOS 27.1, *), CaptureAccessory.isSupported else {
-      return ["presentation": "unsupported", "transfer": "unsupported"]
+      return [
+        "presentation": "unsupported",
+        "transfer": "unsupported",
+        "isResolved": true,
+      ]
     }
     let accessory = CaptureAccessory.shared
     let presentation: String
@@ -371,7 +399,15 @@ public class BifoldPlugin: NSObject, FlutterPlugin {
       // capture session is running.
       presentation = "unavailable"
     }
-    return ["presentation": presentation, "transfer": "unsupported"]
+    return [
+      "presentation": presentation,
+      "transfer": "unsupported",
+      // Authoritative on this platform: the SDK either exposes the accessory
+      // API on the running OS or it does not, which is a static fact rather
+      // than something still being discovered. Dart reads this key strictly, so
+      // omitting it left the availability state permanently unsettled.
+      "isResolved": true,
+    ]
   }
 
   /// Retries attaching the fold observation until the Flutter view exists.
@@ -443,7 +479,11 @@ extension BifoldPlugin: FlutterStreamHandler {
       // being loaded is the absence of an answer, and sending it as resolved
       // made a healthy foldable look like a proven non-foldable on frame one.
       events(
-        FoldReader.unsupportedPayload(version: payloadVersion, isResolved: false)
+        FoldReader.unsupportedPayload(
+          version: payloadVersion,
+          isResolved: false,
+          capabilityRevision: capabilityRevision()
+        )
       )
       // ...and then keep trying. Returning here used to end the matter: the
       // observation was only ever created on this path, so a stream that
@@ -470,11 +510,33 @@ extension BifoldPlugin: FlutterStreamHandler {
 
   /// Sends a reading, unless it is identical to the previous one.
   private func emit(from view: UIView, to sink: FlutterEventSink) {
-    let payload = foldReader.read(from: view, version: payloadVersion)
+    let payload = foldReader.read(
+      from: view,
+      version: payloadVersion,
+      capabilityRevision: capabilityRevision()
+    )
     let boxed = payload as NSDictionary
     guard boxed != lastPayload else { return }
     lastPayload = boxed
     sink(payload)
+  }
+
+  /// The capability revision for the reader's sticky flags.
+  ///
+  /// Derived from `sawHinge` and `sawDivision` because those are the only two
+  /// inputs `CapabilityReader.payload` takes that can change within a process;
+  /// everything else it reads is a static fact about the running OS. The hinge
+  /// flag flips inside the update handler before this runs. The division flag
+  /// flips inside `readRegions`, which is *during* the read — so `FoldReader.read`
+  /// takes this as an `@autoclosure` and stamps the payload after its own
+  /// observations have been recorded. Either way the event that discovers a
+  /// change is the event that carries the new revision, which is what makes
+  /// Dart re-query capabilities on it instead of one event late.
+  private func capabilityRevision() -> Int {
+    capabilityRevisions.revision(
+      sawHinge: foldReader.hinge.sawHinge,
+      sawDivision: foldReader.sawDivision
+    )
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {

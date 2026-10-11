@@ -138,6 +138,36 @@ class RunnerTests: XCTestCase {
     // iOS has no equivalent of moving the whole app across, and saying so is
     // better than pretending.
     XCTAssertEqual(payload["transfer"] as? String, "unsupported")
+
+    // Authoritative on this platform -- the SDK either has the accessory API or
+    // it does not -- so the answer is settled rather than "not yet known". Dart
+    // reads this key with `== true`, so an omitted key left the availability
+    // state permanently unresolved.
+    XCTAssertEqual(
+      payload["isResolved"] as? Bool, true,
+      "the rear-display payload must settle: Dart reads isResolved with == true"
+    )
+  }
+
+  func testCapabilityRevisionTracksOnlyRealChanges() {
+    let tracker = CapabilityRevisionTracker()
+
+    // Baseline. Dart starts below zero, so revision zero already forces the
+    // first query; the first observation must not spend a round trip
+    // establishing what that query would have fetched anyway.
+    XCTAssertEqual(tracker.revision(sawHinge: false, sawDivision: false), 0)
+
+    // A fold observed changes the capability answer, so the revision moves and
+    // Dart re-queries.
+    XCTAssertEqual(tracker.revision(sawHinge: true, sawDivision: false), 1)
+
+    // The hinge keeps reporting while the answer does not change. Bumping here
+    // would make iOS re-query capabilities at sensor rate -- the exact cost the
+    // Dart-side gating exists to avoid.
+    XCTAssertEqual(tracker.revision(sawHinge: true, sawDivision: false), 1)
+
+    // A division alone is a different answer again.
+    XCTAssertEqual(tracker.revision(sawHinge: false, sawDivision: true), 2)
   }
 
   func testUnknownMethodIsNotImplementedRatherThanACrash() {

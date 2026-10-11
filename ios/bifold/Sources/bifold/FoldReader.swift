@@ -145,10 +145,20 @@ final class FoldReader {
   }
 
   /// Reads the current fold state from `view`.
+  ///
+  /// - Parameter capabilityRevision: taken as an `@autoclosure` so the value is
+  ///   read *after* the observations below rather than before they run. A
+  ///   division is discovered by `readRegions`, so the revision can change
+  ///   inside this call; passing it as a plain argument stamped the payload
+  ///   with the value from before that observation, and the bump only landed on
+  ///   the next event — which never comes when the fold settles and the device
+  ///   stops moving. Dart gates its capability re-query on this key moving, so
+  ///   that stale stamp is the difference between `hasSeparatingFold` resolving
+  ///   and sitting at `unknown` for the life of the process.
   func read(
     from view: UIView,
     version: Int,
-    capabilityRevision: Int = 0
+    capabilityRevision: @autoclosure () -> Int = 0
   ) -> [String: Any] {
     // The running OS does not expose the fold APIs at all. That is a complete
     // answer: nothing on this device will ever report a fold.
@@ -156,7 +166,7 @@ final class FoldReader {
       return FoldReader.unsupportedPayload(
         version: version,
         isResolved: true,
-        capabilityRevision: capabilityRevision
+        capabilityRevision: capabilityRevision()
       )
     }
     // Read the regions before deciding whether this device folds, not after.
@@ -174,7 +184,7 @@ final class FoldReader {
       return FoldReader.unsupportedPayload(
         version: version,
         isResolved: queriedRegions,
-        capabilityRevision: capabilityRevision
+        capabilityRevision: capabilityRevision()
       )
     }
 
@@ -192,7 +202,7 @@ final class FoldReader {
       // Reaching here means a hinge or a division has been seen, which is the
       // evidence this device folds.
       "isResolved": true,
-      "capabilityRevision": capabilityRevision,
+      "capabilityRevision": capabilityRevision(),
     ]
     if let angle = hinge.state?.angle {
       payload["hingeAngle"] = angle

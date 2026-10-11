@@ -2,13 +2,19 @@
 
 ## Supported versions
 
-Fixes land on the latest release only. Three versions have been published:
+Fixes land on the latest release only.
 
 | Version | Supported |
 |---|---|
-| 1.0.0 | ✅ |
-| 0.2.0 | ❌ — upgrade to 1.0.0; the [CHANGELOG](CHANGELOG.md) has the migration |
+| 1.0.2 | ✅ |
+| 1.0.1 | ❌ — upgrade; 1.0.2 changes no published API, so nothing to migrate |
+| 1.0.0 | ❌ — upgrade; the [CHANGELOG](CHANGELOG.md) has the migration |
+| 0.2.0 | ❌ — upgrade; the [CHANGELOG](CHANGELOG.md) has the migration |
 | 0.1.0 | ❌ |
+
+`CHANGELOG.md` also carries entries for versions that were never released —
+0.3.0 and 0.1.1 — and this table tracks `main`, which around a release can name
+a version pub.dev does not have yet.
 
 ## Reporting a vulnerability
 
