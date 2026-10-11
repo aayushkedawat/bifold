@@ -244,9 +244,10 @@ abstract final class FoldInfoFakes {
 
 /// Ready-made [RearDisplayAvailability] values for tests and previews.
 ///
-/// Covers the five situations a rear-display UI has to handle, which is one
-/// more than [RearDisplayStatus] has values: "nothing has reported yet" is not
-/// a status, it is the absence of one.
+/// Six values covering the situations a rear-display UI has to handle. Two of
+/// them are not [RearDisplayStatus] values: [unresolved] is the absence of one,
+/// and [bothAvailable] is the pair only Android offers. That leaves the four
+/// statuses themselves, which is what a control has to switch on.
 abstract final class RearDisplayFakes {
   /// Nothing has reported yet. A control should wait, not hide.
   static const RearDisplayAvailability unresolved =

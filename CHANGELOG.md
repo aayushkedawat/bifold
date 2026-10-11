@@ -2,12 +2,26 @@
 
 Fixes for defects on the boundary between Dart and the two native writers —
 the layer no test in this repository could see, because each side was
-self-consistent and the failure lived in the contract between them. Two of them
-contradicted the package's own documented semantics. No published API changes,
-and no deprecation is warranted: the fixes move behaviour towards what the
-README and the doc comments already promised.
+self-consistent and the failure lived in the contract between them — plus one on
+the widget layer, where a layout did not do what three separate documents said
+it did. Several of them contradicted the package's own documented semantics. No
+published API changes, and no deprecation is warranted: the fixes move behaviour
+towards what the README and the doc comments already promised.
 
 **Fixed**
+
+* **`BifoldGrid` now breaks the columns at a vertical crease, as it always said
+  it did.** The class documentation, the README's layout table and the 1.0.0
+  release note all state that no tile is ever drawn across the crease. That was
+  true only for a division running *across* the display — a flip-style fold,
+  where the break is between rows — because the split was gated on
+  `FoldRegion.isHorizontal`. A book-style fold runs *down* the display, so the
+  gate rejected it and the widget fell through to a plain `GridView.count`: on
+  the shape most foldables actually are, every tile was drawn straight through
+  the hinge. Each side of a vertical crease now works out its own column count,
+  because the crease does not sit at the midpoint: a single count taken from the
+  whole width overflows each side, and one taken from the narrow side leaves the
+  wide side cramped.
 
 * **iOS now advances `capabilityRevision`.** The plugin stamped every fold
   payload with a constant zero, so Dart queried capabilities exactly once — at
@@ -113,8 +127,32 @@ README and the doc comments already promised.
   any report decodes to `unresolved` and one that carries `isResolved: true`
   decodes to `none`; and a scan asserting both platforms' rear-display writers
   still name the key Dart reads strictly.
+* `anchoring_test.dart` covers both ways a crease can run rather than the
+  horizontal one alone, and asserts that tiles land on *both* sides of it. The
+  straddle check on its own would be satisfied by a grid that dumped every tile
+  on one side without splitting at all, which is close to what the bug was. A
+  second test pins the per-side column count.
 
 **Docs**
+
+* Four claims in the README did not survive being checked against the source and
+  were corrected. `BifoldGrid`'s "never" is the defect fixed above, and its
+  section now says which way each crease breaks. The iOS cell of *Open,
+  half-open and closed* ticked a `fullyOpen` reading that no record in this
+  repository contains — every iOS observation was taken shut or part-way open at
+  127.8° — so that row is now *Closed and part-way open*, with *Flat open* beside
+  it marked as not recorded and a fourth entry added to the list of gaps, since
+  the checklist step that would produce the reading is still unchecked. A
+  quotation about using hinge data for animation rather than layout decisions was
+  attributed to Apple but appears in no source recorded in `API_NOTES.md`, which
+  holds only the rate-and-granularity sentence; the advice stays, as this
+  package's own. And a blanket "verified against the SDK headers and artifacts"
+  described `UISplitArrangement`, which `API_NOTES.md` marks unverified as a
+  header symbol and which was found by runtime introspection instead. The count
+  of rear-display situations `RearDisplayFakes` covers is six, matching the six
+  values it defines. `doc/manual-tests.md` follows: its rotate-while-half-open
+  step now expects the grid to break along the new orientation too, since
+  rotating a book-style fold is how the vertical path reaches a real device.
 
 * The README's verification matrix legend now says where each kind of ✅ is
   recorded — simulator and emulator observations in `doc/manual-tests.md` (iOS)

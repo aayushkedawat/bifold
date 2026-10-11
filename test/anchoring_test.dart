@@ -147,46 +147,110 @@ void main() {
       }
     });
 
-    testWidgets('never draws a tile across an active crease', (tester) async {
-      tester.view
-        ..physicalSize = kViewSize
-        ..devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
+    // A crease runs one of two ways: across the display, splitting it into a
+    // top and a bottom part, or down it, splitting it into a left and a right
+    // one. Only the first was ever handled here, which let a book-style fold —
+    // the shape most foldables actually are — draw every tile straight through
+    // the hinge while this widget's own documentation said it never would.
+    final List<FoldInfo> creases = <FoldInfo>[
+      FoldInfoFakes.partiallyOpen(viewSize: kViewSize),
+      FoldInfoFakes.partiallyOpenVertical(viewSize: kViewSize),
+    ];
 
-      final info = FoldInfoFakes.partiallyOpen(viewSize: kViewSize);
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: BifoldScope.fake(
-            info: info,
-            child: BifoldGrid(
-              tileExtent: 150,
-              children: List<Widget>.generate(
-                20,
-                (i) => ColoredBox(
-                  key: ValueKey<int>(i),
-                  color: const Color(0xFF222222),
-                ),
-              ),
+    testWidgets('never draws a tile across an active crease', (tester) async {
+      for (final info in creases) {
+        await _pumpGrid(tester, info);
+
+        final FoldRegion division = info.division!;
+        final Rect crease = division.frame;
+        final bool splitsRows = division.isHorizontal;
+        var before = 0;
+        var after = 0;
+
+        for (var i = 0; i < 20; i++) {
+          final finder = find.byKey(ValueKey<int>(i));
+          if (!tester.any(finder)) continue;
+          final rect = tester.getRect(finder);
+          if (rect.isEmpty) continue;
+
+          final bool overlaps = splitsRows
+              ? rect.top < crease.bottom && rect.bottom > crease.top
+              : rect.left < crease.right && rect.right > crease.left;
+          expect(
+            overlaps,
+            isFalse,
+            reason: 'tile $i at $rect straddles the crease $crease',
+          );
+
+          if (splitsRows) {
+            before += rect.bottom <= crease.top ? 1 : 0;
+            after += rect.top >= crease.bottom ? 1 : 0;
+          } else {
+            before += rect.right <= crease.left ? 1 : 0;
+            after += rect.left >= crease.right ? 1 : 0;
+          }
+        }
+
+        expect(
+          before,
+          greaterThan(0),
+          reason: 'nothing was laid out before the crease $crease, so the '
+              'tiles were not split at all — straddling one side is only '
+              'half a fix',
+        );
+        expect(after, greaterThan(0), reason: 'nothing landed past $crease');
+      }
+    });
+
+    testWidgets('gives each side of a vertical crease its own column count', (
+      tester,
+    ) async {
+      // Both sides are 376 wide against a 150 target, so two columns each. A
+      // count taken from the full 800 would put five narrow ones on the left
+      // and overflow it into the hinge.
+      final info = FoldInfoFakes.partiallyOpenVertical(viewSize: kViewSize);
+      await _pumpGrid(tester, info);
+
+      final Rect crease = info.division!.frame;
+      final Rect first = tester.getRect(find.byKey(const ValueKey<int>(0)));
+      final Rect second = tester.getRect(find.byKey(const ValueKey<int>(1)));
+      final Rect third = tester.getRect(find.byKey(const ValueKey<int>(2)));
+
+      expect(first.left, 0);
+      expect(second.left, greaterThan(first.right));
+      expect(
+        first.width,
+        closeTo((crease.left - 8) / 2, 0.01),
+        reason: 'the left pane sized its tiles for the whole display',
+      );
+      expect(third.left, first.left, reason: 'the third tile starts row two');
+    });
+  });
+}
+
+Future<void> _pumpGrid(WidgetTester tester, FoldInfo info) async {
+  tester.view
+    ..physicalSize = kViewSize
+    ..devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+
+  await tester.pumpWidget(
+    Directionality(
+      textDirection: TextDirection.ltr,
+      child: BifoldScope.fake(
+        info: info,
+        child: BifoldGrid(
+          tileExtent: 150,
+          children: List<Widget>.generate(
+            20,
+            (i) => ColoredBox(
+              key: ValueKey<int>(i),
+              color: const Color(0xFF222222),
             ),
           ),
         ),
-      );
-      await tester.pump();
-
-      final crease = info.division!.frame;
-      for (var i = 0; i < 20; i++) {
-        final finder = find.byKey(ValueKey<int>(i));
-        if (!tester.any(finder)) continue;
-        final rect = tester.getRect(finder);
-        if (rect.isEmpty) continue;
-        final overlaps = rect.top < crease.bottom && rect.bottom > crease.top;
-        expect(
-          overlaps,
-          isFalse,
-          reason: 'tile $i at $rect straddles the crease $crease',
-        );
-      }
-    });
-  });
+      ),
+    ),
+  );
+  await tester.pump();
 }

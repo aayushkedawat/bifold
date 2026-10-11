@@ -115,8 +115,8 @@ The inner display does not honour supported interface orientations.
 
 - [ ] Rotate while open. Layout follows size classes and does not break.
 - [ ] Does the division ever report **vertical** (full height rather than full
-      width)? `BifoldSplit` handles both axes and
-      `FoldInfoFakes.partiallyOpenVertical` tests it, but it is unconfirmed
+      width)? `BifoldSplit` and `BifoldGrid` handle both axes and
+      `FoldInfoFakes.partiallyOpenVertical` tests them, but it is unconfirmed
       whether the device ever reports that orientation.
 - [ ] Rotate while shut, on the outer display.
 
@@ -245,7 +245,7 @@ previous one found.
 | A3 | Closed (state 0), angle 0 | `foldable` **still true**, `pose: unknown`, `display: none`, 0 regions, `compact/regular` on the cover display | |
 | A4 | A1 → A3 → A1 | `BifoldScaffold` swaps its NavigationRail for a bottom bar and back; no stale measurements from the previous display | |
 | A5 | Sweep the angle (see below) | the hinge gauge tracks every value, not just the detents; the angle never sticks at a previous reading | |
-| A6 | Rotate while half-open | the division follows the new orientation | |
+| A6 | Rotate while half-open | the division follows the new orientation, and `BifoldSplit` and `BifoldGrid` both break along it | |
 | A7 | Multi-window / split screen | size classes follow the window, not the display | |
 | A8 | Run on a non-foldable AVD | `not foldable`, no regions, **nothing logged to the console** | |
 | A9 | Throughout | no exception of any kind in `flutter run` output | |

@@ -170,7 +170,10 @@ BifoldGrid(
 ```
 
 Treats an active fold as a hard break, so no tile is ever drawn bent across the
-crease. With no active fold it is an ordinary wrapping grid, so it is safe to use
+crease. The break follows the crease: a flip-style fold across the display ends
+the row, a book-style fold down it ends the column, and each side works out its
+own column count rather than sharing one taken from the full width. With no
+active fold it is an ordinary wrapping grid, so it is safe to use
 unconditionally.
 
 ### `BifoldScaffold`
@@ -314,7 +317,7 @@ and a foldable whose hinge sensor is present but silent.
 
 Capability profiles are named after device *shapes*, never products: `book()`,
 `flip()`, `dualScreen()`, `bookWithTransfer()`, `flat`, `unopenedFoldable()`.
-`RearDisplayFakes` covers the five rear-display situations.
+`RearDisplayFakes` covers the six rear-display situations.
 
 To drive updates over time, install `FakeBifoldPlatform`:
 
@@ -362,10 +365,11 @@ the device folds. Read them from the current `FoldInfo` every build.
 **`frame` already includes `margins`.** Lay out against `frame` directly; do not
 inflate it again. `reservedRect` is the bare hardware if you need it.
 
-**Prefer `pose` over `hingeAngle` for layout.** Apple documents the angle's rate
-and granularity as system policy that can change, and says to use hinge data for
-animation rather than layout decisions. Lay out with size classes and `pose`;
-animate with the angle.
+**Prefer `pose` over `hingeAngle` for layout.** An angle is a measurement, and
+Apple documents its rate and granularity as system policy that can change.
+`pose` is categorical, and it is what this package derives size classes and
+split behaviour from. Lay out with size classes and `pose`; animate with the
+angle.
 
 **Lay out against size classes, not orientation.** On iOS the inner display does
 not honour an app's supported interface orientations. Android has no UIKit size
@@ -398,7 +402,10 @@ back, somewhere in this repository:
   result column is still blank: that list has not been walked start to finish as
   a list, so no cell below points at its ticks.
 * **Native symbols** are verified in [`API_NOTES.md`](API_NOTES.md) against the
-  SDK headers and artifacts, with the source and the date.
+  SDK headers and artifacts where a header declares them, and by runtime
+  introspection where none does — one symbol, `UISplitArrangement`, is in that
+  second category and is marked unverified there. Each entry carries its source
+  and the date.
 * **Automated tests and the capability invariants** are the CI workflow, which
   runs the Dart suite, the Kotlin `:bifold:test` suite and the `RunnerTests`
   XCTest suite on every push.
@@ -411,7 +418,8 @@ being broken.
 | Native symbols checked against SDK/artifacts | ✅ | ✅ |
 | Native code covered by automated tests | ✅ 7 Swift | ✅ 27 Kotlin |
 | Fold state on a simulator / emulator | ✅ | ✅ |
-| Open, half-open and closed | ✅ | ✅ |
+| Closed and part-way open | ✅ | ✅ |
+| Flat open (a division, but inactive) | ⚠️ not recorded | ✅ |
 | Hinge angle | ✅ | ✅ (injected) |
 | Size classes | ✅ | ✅ |
 | No capability claims more than the fold does | ✅ in CI | ✅ in CI |
@@ -428,8 +436,14 @@ flip-style AVD.
 
 **Nothing in this package has run on a physical foldable, on either platform.**
 The iPhone Duo ships on 23 October 2026; the Android side has been exercised on
-emulators only. Three gaps are worth stating rather than leaving to be inferred:
+emulators only. Four gaps are worth stating rather than leaving to be inferred:
 
+- **A flat open display has never been observed on iOS.** Every iOS reading
+  recorded here was taken shut, or part-way open at 127.8°, where the pose is
+  `partiallyOpen`. `fullyOpen` is exercised by unit tests against synthetic
+  state rather than by a simulator reading, and the checklist step that would
+  produce one — *Open flat*, in
+  [`doc/manual-tests.md`](doc/manual-tests.md) — is still unchecked.
 - **Reserved regions have never been observed on iOS.** The simulator does not
   emit them, so the decode path, coordinate space and margin handling are
   verified against the SDK headers and exercised by unit tests with synthetic
