@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:bifold/bifold.dart';
 import 'package:bifold/src/anchoring.dart';
 import 'package:flutter/material.dart';
@@ -225,10 +227,52 @@ void main() {
       );
       expect(third.left, first.left, reason: 'the third tile starts row two');
     });
+
+    testWidgets('starts every pane at the top of the box', (tester) async {
+      // A Row centres its children by default, and the near pane is a
+      // fixed-width box around a shrink-wrapped grid, so left to centre it
+      // floats to the middle of whatever the far pane measures. Measured 24
+      // logical pixels below the far pane's first tile with twenty tiles, and
+      // 312 — a third of the way down the display — with three. Tiles stop at
+      // the crease either way, so the straddle checks above are blind to it.
+      for (final count in <int>[20, 3]) {
+        final info = FoldInfoFakes.partiallyOpenVertical(viewSize: kViewSize);
+        await _pumpGrid(tester, info, count: count);
+
+        final Rect crease = info.division!.frame;
+        final List<double> near = <double>[];
+        final List<double> far = <double>[];
+        for (var i = 0; i < count; i++) {
+          final finder = find.byKey(ValueKey<int>(i));
+          if (!tester.any(finder)) continue;
+          final rect = tester.getRect(finder);
+          if (rect.right <= crease.left) {
+            near.add(rect.top);
+          } else if (rect.left >= crease.right) {
+            far.add(rect.top);
+          }
+        }
+
+        expect(near, isNotEmpty, reason: 'nothing in the near pane');
+        expect(
+          near.reduce(math.min),
+          0.0,
+          reason: 'the near pane does not start at the top with $count tiles',
+        );
+        if (far.isNotEmpty) {
+          expect(
+            far.reduce(math.min),
+            0.0,
+            reason: 'the far pane does not start at the top with $count tiles',
+          );
+        }
+      }
+    });
   });
 }
 
-Future<void> _pumpGrid(WidgetTester tester, FoldInfo info) async {
+Future<void> _pumpGrid(WidgetTester tester, FoldInfo info,
+    {int count = 20}) async {
   tester.view
     ..physicalSize = kViewSize
     ..devicePixelRatio = 1.0;
@@ -242,7 +286,7 @@ Future<void> _pumpGrid(WidgetTester tester, FoldInfo info) async {
         child: BifoldGrid(
           tileExtent: 150,
           children: List<Widget>.generate(
-            20,
+            count,
             (i) => ColoredBox(
               key: ValueKey<int>(i),
               color: const Color(0xFF222222),

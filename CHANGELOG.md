@@ -2,7 +2,7 @@
 
 Fixes for defects on the boundary between Dart and the two native writers —
 the layer no test in this repository could see, because each side was
-self-consistent and the failure lived in the contract between them — plus one on
+self-consistent and the failure lived in the contract between them — plus two on
 the widget layer, where a layout did not do what three separate documents said
 it did. Several of them contradicted the package's own documented semantics. No
 published API changes, and no deprecation is warranted: the fixes move behaviour
@@ -22,6 +22,25 @@ towards what the README and the doc comments already promised.
   because the crease does not sit at the midpoint: a single count taken from the
   whole width overflows each side, and one taken from the narrow side leaves the
   wide side cramped.
+
+* **`BifoldGrid` starts both panes at the top of the box.** The Row that holds
+  them centres its children by default, and the near pane is a fixed-width box
+  around a shrink-wrapped grid, so it floated to the vertical middle of whatever
+  the far pane measured — 24 logical pixels below the far pane's first tile with
+  twenty tiles, and a third of the way down the display with three. Tiles stopped
+  at the crease either way, so the straddle tests were blind to it. The Row is
+  now `CrossAxisAlignment.start`, which fixes the alignment without forcing a
+  tight cross-axis size on the children the way `stretch` would.
+
+* **The `BifoldGrid` class comment says what it actually needs.** It claimed the
+  widget falls back to a plain grid when it cannot split, which is true of one
+  guard and was written as if it were true of all of them: with an unbounded
+  axis — the widget inside a `SingleChildScrollView` or `ListView` — Flutter's
+  own viewport assertion fires before either path here can run. That is not a
+  defect this release introduced and not one it fixes; it is a constraint, and
+  the comment now states it plainly, with the two messages observed (`Vertical
+  viewport was given unbounded height` and `... unbounded width`, one per axis)
+  and the workaround, instead of implying a fallback that never happens.
 
 * **iOS now advances `capabilityRevision`.** The plugin stamped every fold
   payload with a constant zero, so Dart queried capabilities exactly once — at
@@ -131,7 +150,10 @@ towards what the README and the doc comments already promised.
   horizontal one alone, and asserts that tiles land on *both* sides of it. The
   straddle check on its own would be satisfied by a grid that dumped every tile
   on one side without splitting at all, which is close to what the bug was. A
-  second test pins the per-side column count.
+  second test pins the per-side column count, and a third pins the pane alignment
+  the straddle checks cannot see: it reads the two panes' own top edges with
+  twenty tiles and with three, because the centring was barely visible in one and
+  a third of the display in the other.
 
 **Docs**
 
@@ -144,9 +166,12 @@ towards what the README and the doc comments already promised.
   it marked as not recorded and a fourth entry added to the list of gaps, since
   the checklist step that would produce the reading is still unchecked. A
   quotation about using hinge data for animation rather than layout decisions was
-  attributed to Apple but appears in no source recorded in `API_NOTES.md`, which
-  holds only the rate-and-granularity sentence; the advice stays, as this
-  package's own. And a blanket "verified against the SDK headers and artifacts"
+  attributed to Apple but appears in no source recorded in `API_NOTES.md`. That
+  file does quote Apple twice on the hinge angle — that its rate and granularity
+  are system policy, and that `status` should be preferred over the angle when
+  only closed, part-way open or open matters — but neither sentence says what the
+  removed claim did, so it stays out, and the advice remains this package's own.
+  And a blanket "verified against the SDK headers and artifacts"
   described `UISplitArrangement`, which `API_NOTES.md` marks unverified as a
   header symbol and which was found by runtime introspection instead. The count
   of rear-display situations `RearDisplayFakes` covers is six, matching the six

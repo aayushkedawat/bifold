@@ -25,6 +25,16 @@ import 'bifold_scope.dart';
 ///
 /// With no active division — shut, flat, or a device that does not fold — it
 /// behaves as an ordinary wrapping grid, so it is safe to use unconditionally.
+///
+/// ## Give it a bounded box
+///
+/// It fills a viewport; it does not grow inside another. Inside a parent that
+/// scrolls either way — a `SingleChildScrollView` or a `ListView` — one axis
+/// arrives unbounded, and Flutter's own viewport assertion fires before anything
+/// here runs: `Vertical viewport was given unbounded height` in a parent that
+/// scrolls vertically, `... unbounded width` in one that scrolls horizontally.
+/// Give it a bounded parent — a `SizedBox`, an `Expanded`, anything that settles
+/// both axes — rather than a scrolling one.
 class BifoldGrid extends StatelessWidget {
   /// Creates a grid that respects the fold.
   const BifoldGrid({
@@ -70,15 +80,17 @@ class BifoldGrid extends StatelessWidget {
           return _plainGrid(width);
         }
 
-        // Splitting stacks the far side in an `Expanded`, so the axis it
-        // stacks on has to be bounded. An unbounded one means the parent is
-        // scrolling this grid anyway, and the plain grid is the right answer.
+        // A split puts the far side in an `Expanded`, which needs a bounded
+        // box to divide. An unbounded axis means this widget is inside a
+        // parent that scrolls in that direction, and neither path lays out
+        // there — see the class comment — so this falls back rather than
+        // pretending the split would have worked.
         if (division.isHorizontal) {
           return constraints.hasBoundedHeight
               ? _splitRows(division, width)
               : _plainGrid(width);
         }
-        return constraints.hasBoundedWidth
+        return constraints.hasBoundedWidth && constraints.hasBoundedHeight
             ? _splitColumns(division, width, height)
             : _plainGrid(width);
       },
@@ -145,6 +157,13 @@ class BifoldGrid extends StatelessWidget {
     final int countLeft = (columnsLeft * rowsLeft).clamp(0, children.length);
 
     return Row(
+      // Top-aligned, not centred. A `Row` centres its children by default, and
+      // the near pane is a fixed-width box around a shrink-wrapped grid, so it
+      // would float to the vertical middle of whatever the far pane measures:
+      // measured 24 logical pixels below the far pane's first tile with 20
+      // tiles, and a third of the way down the display with three. Tiles stop
+      // at the crease either way, so only this lines them up.
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         SizedBox(
           width: frame.left,
