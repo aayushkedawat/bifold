@@ -40,7 +40,10 @@ towards what the README and the doc comments already promised.
   defect this release introduced and not one it fixes; it is a constraint, and
   the comment now states it plainly, with the two messages observed (`Vertical
   viewport was given unbounded height` and `... unbounded width`, one per axis)
-  and the workaround, instead of implying a fallback that never happens.
+  and the workaround, instead of implying a fallback that never happens. The
+  guard itself is now one predicate in front of both branches rather than an
+  axis-specific check inside each: the two splits need the same thing, and
+  stating it twice is how they came to disagree.
 
 * **iOS now advances `capabilityRevision`.** The plugin stamped every fold
   payload with a constant zero, so Dart queried capabilities exactly once — at

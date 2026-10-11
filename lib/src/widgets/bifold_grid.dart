@@ -80,19 +80,20 @@ class BifoldGrid extends StatelessWidget {
           return _plainGrid(width);
         }
 
-        // A split puts the far side in an `Expanded`, which needs a bounded
-        // box to divide. An unbounded axis means this widget is inside a
-        // parent that scrolls in that direction, and neither path lays out
-        // there — see the class comment — so this falls back rather than
-        // pretending the split would have worked.
-        if (division.isHorizontal) {
-          return constraints.hasBoundedHeight
-              ? _splitRows(division, width)
-              : _plainGrid(width);
+        // A split needs a bounded box on both axes, whichever way the crease
+        // runs: the far side goes in an `Expanded`, which divides the main
+        // axis, and every tile grid is a viewport, which asserts on an
+        // unbounded cross axis too. An unbounded axis means the parent is
+        // scrolling, and neither path lays out there — see the class comment —
+        // so this falls back rather than pretending the split would have
+        // worked.
+        if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+          return _plainGrid(width);
         }
-        return constraints.hasBoundedWidth && constraints.hasBoundedHeight
-            ? _splitColumns(division, width, height)
-            : _plainGrid(width);
+
+        return division.isHorizontal
+            ? _splitRows(division, width)
+            : _splitColumns(division, width, height);
       },
     );
   }
